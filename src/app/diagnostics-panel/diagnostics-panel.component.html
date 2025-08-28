@@ -1,0 +1,104 @@
+<div class="w-full rounded-md border border-gray-200 bg-white shadow-sm">
+  <div class="flex items-center justify-between px-3 py-2 border-b">
+    <h2 class="text-primary text-lg font-medium leading-tight">Diagnostics</h2>
+    <div class="flex items-center gap-2">
+      <button
+        class="px-3 py-1.5 rounded shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        (click)="refresh()"
+        [disabled]="loading"
+        title="Refresh diagnostics"
+      >
+        Refresh
+      </button>
+      <button
+        class="px-3 py-1.5 rounded shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        (click)="fixExtras()"
+        [disabled]="loading"
+        title="Close extra tabs and repair state"
+      >
+        Fix extras
+      </button>
+      <button
+        class="px-3 py-1.5 rounded shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        (click)="toggleAuto()"
+        [disabled]="loading"
+        title="Toggle auto refresh every 3s"
+      >
+        {{ autoRefresh ? 'Auto: ON' : 'Auto: OFF' }}
+      </button>
+      <button
+        class="px-3 py-1.5 rounded shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        (click)="copyJSON()"
+        [disabled]="!diags"
+        title="Copy JSON to clipboard"
+      >
+        Copy JSON
+      </button>
+    </div>
+  </div>
+
+  <div class="px-3 py-2 text-sm">
+    <div *ngIf="loading" class="text-gray-600">Loading…</div>
+    <div *ngIf="error" class="text-red-600">{{ error }}</div>
+
+    <div *ngIf="diags as d" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div class="rounded bg-ghost p-2">
+        <div class="font-semibold mb-1">Status</div>
+        <ul class="space-y-0.5">
+          <li><span class="text-gray-600">Version:</span> {{ d.version }}</li>
+          <li><span class="text-gray-600">Rotating:</span> {{ d.isRotating }}</li>
+          <li><span class="text-gray-600">Current index:</span> {{ d.currentIndex }}</li>
+          <li><span class="text-gray-600">Pages configured:</span> {{ d.pagesConfigured }}</li>
+          <li><span class="text-gray-600">Window ID:</span> {{ d.windowId }}</li>
+          <li><span class="text-gray-600">Tabs in window:</span> {{ d.windowTabCount }}</li>
+          <li><span class="text-gray-600">Now:</span> {{ d.now }}</li>
+        </ul>
+      </div>
+
+      <div class="rounded bg-ghost p-2">
+        <div class="font-semibold mb-1">Scheduler (alarms)</div>
+        <div class="max-h-40 overflow-auto border rounded">
+          <table class="table-auto w-full text-xs">
+            <thead class="bg-gray-100 sticky top-0">
+              <tr>
+                <th class="text-left px-2 py-1">Name</th>
+                <th class="text-left px-2 py-1">When</th>
+                <th class="text-left px-2 py-1">Period (m)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let a of d.alarms">
+                <td class="px-2 py-1">{{ a.name }}</td>
+                <td class="px-2 py-1">{{ a.scheduledTime }}</td>
+                <td class="px-2 py-1">{{ a.periodInMinutes || 0 }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="rounded bg-ghost p-2 col-span-1 md:col-span-2">
+        <div class="font-semibold mb-1">Tracked/Allowed IDs</div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+          <div>
+            <div class="font-medium">Tracked</div>
+            <pre class="max-h-28 overflow-auto border rounded p-2 bg-white">{{ d.trackedTabIds | json }}</pre>
+          </div>
+          <div>
+            <div class="font-medium">Allowed (current + next)</div>
+            <pre class="max-h-28 overflow-auto border rounded p-2 bg-white">{{ d.allowedIds | json }}</pre>
+          </div>
+          <div>
+            <div class="font-medium">Extra tracked (will be closed)</div>
+            <pre class="max-h-28 overflow-auto border rounded p-2 bg-white">{{ d.extraTrackedIds | json }}</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded bg-ghost p-2 col-span-1 md:col-span-2">
+        <div class="font-semibold mb-1">Window tabs preview (first 15)</div>
+        <pre class="max-h-56 overflow-auto border rounded p-2 bg-white text-xs">{{ d.windowTabsPreview | json }}</pre>
+      </div>
+    </div>
+  </div>
+</div>

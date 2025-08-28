@@ -11,80 +11,135 @@ const rotationService = new RotationService(
   toolbarManagerService
 );
 
-if (chrome.webNavigation && chrome.webNavigation.onErrorOccurred) {
-  chrome.webNavigation.onErrorOccurred.addListener(async (details) => {
+// Re-arm on install/start
+chrome.runtime.onInstalled.addListener(() =>
+  rotationService.rescheduleIfNeeded()
+);
+chrome.runtime.onStartup.addListener(() =>
+  rotationService.rescheduleIfNeeded()
+);
+
+// Alarms dispatcher
+chrome.alarms.onAlarm.addListener((alarm) => {
+  (async () => {
     try {
-      await rotationService.onHandleError(details.tabId, details.url);
-    } catch (error) {
-      console.error('Failed to handle page error:', error);
+      if (alarm.name === 'rotate') {
+        await rotationService.onRotateAlarm();
+      } else if (alarm.name === 'configReload') {
+        await rotationService.onConfigReloadAlarm();
+      } else if (alarm.name.startsWith('reload:')) {
+        const id = Number(alarm.name.split(':')[1]);
+        await rotationService.onReloadAlarm(id);
+      }
+    } catch (e) {
+      console.error('[bg] Alarm handler error:', e, chrome.runtime.lastError);
     }
+  })();
+});
+
+if (chrome.webNavigation && chrome.webNavigation.onErrorOccurred) {
+  chrome.webNavigation.onErrorOccurred.addListener((details) => {
+    (async () => {
+      try {
+        await rotationService.onHandleError(details.tabId, details.url);
+      } catch (e) {
+        console.error('[bg] onErrorOccurred failed:', e);
+      }
+    })();
   });
-} else {
-  console.error('webNavigation API is not available.');
 }
 
 if (chrome.webNavigation && chrome.webNavigation.onCompleted) {
-  chrome.webNavigation.onCompleted.addListener(async (details) => {
-    try {
-      await rotationService.onPageLoaded(details.tabId, details.url);
-    } catch (error) {
-      console.error('Failed to handle page load:', error);
-    }
+  chrome.webNavigation.onCompleted.addListener((details) => {
+    (async () => {
+      try {
+        await rotationService.onPageLoaded(details.tabId, details.url);
+      } catch (e) {
+        console.error('[bg] onCompleted failed:', e);
+      }
+    })();
   });
-} else {
-  console.error('webNavigation API is not available.');
 }
 
 if (chrome.tabs && chrome.tabs.onRemoved) {
-  chrome.tabs.onRemoved.addListener(async (tabId) => {
-    try {
-      await rotationService.tryRemoveTabFromRotationOnClose(tabId);
-    } catch (error) {
-      console.error('Failed to handle tab removal on close:', error);
-    }
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    (async () => {
+      try {
+        // ignore onRemoved events triggered by Stop
+        if ((rotationService as any).isStopping && rotationService.isStopping())
+          return;
+        await rotationService.tryRemoveTabFromRotationOnClose(tabId);
+      } catch (error) {
+        console.error('[bg] onRemoved failed:', error);
+      }
+    })();
   });
-} else {
-  console.error('tabs API is not available.');
 }
 
-chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
-  console.debug('Message received:', message, rotationService.isRotating);
-  let responseSent = false;
+// Messaging — IMPORTANT: send early acks to avoid port timeout.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('[bg] Message:', message);
 
   if (message.action === 'rotateTabs') {
-    if (!rotationService.isRotating) {
+    // Ack early so popup doesn't get "port closed"
+    sendResponse({ ok: true, status: 'starting' });
+    (async () => {
       try {
-        console.debug('Starting rotation...');
-        await rotationService.initialize();
-        sendResponse({ status: 'started' });
-      } catch (error) {
-        console.error('Failed to start rotation:', error);
-        sendResponse({ status: 'error', message: error });
+        if (!rotationService.isRotating) {
+          await rotationService.initialize();
+        } else {
+          console.log('[bg] Already rotating');
+        }
+      } catch (e) {
+        console.error('[bg] Failed to start rotation:', e);
       }
-    } else {
-      sendResponse({ status: 'already rotating' });
-    }
-    responseSent = true;
-  } else if (message.action === 'stopRotation') {
-    try {
-      await rotationService.stopRotation();
-      sendResponse({ status: 'stopped' });
-    } catch (error) {
-      console.error('Failed to stop rotation:', error);
-      sendResponse({ status: 'error', message: error });
-    }
-    responseSent = true;
-  } else if (message.action === 'getRotationState') {
-    sendResponse({ isRotating: rotationService.isRotating });
-    responseSent = true;
-  } else {
-    sendResponse({ status: 'unknown action' });
-    responseSent = true;
+    })();
+    return true;
   }
 
-  if (!responseSent) {
-    sendResponse({ status: 'no response' });
+  if (message.action === 'stopRotation') {
+    sendResponse({ ok: true, status: 'stopping' });
+    (async () => {
+      try {
+        await rotationService.stopRotation();
+      } catch (e) {
+        console.error('[bg] Failed to stop rotation:', e);
+      }
+    })();
+    return true;
   }
 
-  return true; // Indicate that we will send a response asynchronously
+  if (message.action === 'getRotationState') {
+    sendResponse({ ok: true, isRotating: rotationService.isRotating });
+    return true;
+  }
+
+  if (message.action === 'getDiagnostics') {
+    (async () => {
+      try {
+        const diags = await rotationService.getDiagnostics();
+        sendResponse({ ok: true, diagnostics: diags });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'enforceInvariant') {
+    (async () => {
+      try {
+        const diags = await rotationService.enforceNow();
+        sendResponse({ ok: true, diagnostics: diags });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e) });
+      }
+    })();
+    return true;
+  }
+
+  sendResponse({ ok: false, error: `unknown action: ${message?.action}` });
+  return true;
 });
+
+export {};

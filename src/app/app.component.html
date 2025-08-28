@@ -1,8 +1,6 @@
 <div class="flex flex-col w-full gap-4 p-2">
   <div class="flex w-full justify-between flex-wrap gap-2">
-    <h1
-      class="text-primary text-xl font-bold tracking-tight leading-7 truncate"
-    >
+    <h1 class="text-primary text-xl font-bold tracking-tight leading-7 truncate">
       Tabs Rotator / Slideshow
     </h1>
     <div class="flex justify-end flex-wrap gap-2">
@@ -50,6 +48,12 @@
       >
         Stop
       </button>
+      <button
+        class="px-4 py-2 rounded shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        (click)="toggleDiagnostics()"
+      >
+        {{ showDiagnostics ? 'Hide diagnostics' : 'Show diagnostics' }}
+      </button>
     </div>
   </div>
 
@@ -67,13 +71,10 @@
     ></app-config-loader>
   </div>
 
-  <div
-    id="allowFileSchemeAccess"
-    class="flex text-md"
-    *ngIf="allowFileSchemeAccessMessage"
-  >
+  <div id="allowFileSchemeAccess" class="flex text-md" *ngIf="allowFileSchemeAccessMessage">
     If you need to run on file:// URLs, please allow this access explicitly.<br />
-    Right-click the extension icon, choose Manage Extension and scroll down to
-    enable access to file URLs.
+    Right-click the extension icon, choose Manage Extension and scroll down to enable access to file URLs.
   </div>
+
+  <app-diagnostics-panel *ngIf="showDiagnostics" class="mt-2"></app-diagnostics-panel>
 </div>

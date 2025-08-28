@@ -2,12 +2,10 @@
   "manifest_version": 3,
   "name": "Tabs Rotator / Slideshow",
   "short_name": "Tabs Rotator",
-  "version": "1.1",
-  "description": "Rotate through a set of URLs at specified intervals.",
-  "permissions": ["tabs", "storage", "activeTab", "webNavigation"],
-  "host_permissions": [
-        "*://*/*"
-    ],
+  "version": "1.2",
+  "description": "Rotate through a set of URLs at specified intervals. Automatically switches between opened tabs. Each web page preloaded in the background.",
+  "permissions": ["tabs", "storage", "activeTab", "webNavigation", "alarms"],
+  "host_permissions": ["*://*/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"

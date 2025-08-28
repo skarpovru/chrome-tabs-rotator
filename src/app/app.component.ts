@@ -7,6 +7,7 @@ import {
 } from '@angular/core';
 import { ConfigEditorComponent } from './config-editor/config-editor.component';
 import { ConfigLoaderComponent } from './config-loader/config-loader.component';
+import { DiagnosticsPanelComponent } from './diagnostics-panel/diagnostics-panel.component';
 import { ConfigData, RemoteSettings, StorageKeys } from './models';
 import { ConfigLoaderService } from './services/config-loader.service';
 
@@ -16,7 +17,12 @@ import { ConfigLoaderService } from './services/config-loader.service';
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ConfigEditorComponent, ConfigLoaderComponent],
+  imports: [
+    CommonModule,
+    ConfigEditorComponent,
+    ConfigLoaderComponent,
+    DiagnosticsPanelComponent,
+  ],
 })
 export class AppComponent implements OnInit {
   isRotating = false;
@@ -25,6 +31,9 @@ export class AppComponent implements OnInit {
   useRemoteConfig: boolean = false;
   isRotationDisabled: boolean = false;
   allowFileSchemeAccessMessage: boolean = false;
+
+  // Diagnostics
+  showDiagnostics = false;
 
   constructor(
     private cdr: ChangeDetectorRef,
@@ -127,6 +136,11 @@ export class AppComponent implements OnInit {
         console.debug('Remote configuration saved', remoteConfig);
       }
     );
+  }
+
+  toggleDiagnostics() {
+    this.showDiagnostics = !this.showDiagnostics;
+    this.cdr.detectChanges();
   }
 
   private loadStoredConfigData(useRemoteConfig: boolean) {

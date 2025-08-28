@@ -2,7 +2,7 @@
 
 ## Overview
 
-Tabs Rotator automatically loads URLs in new tabs and displays them as slideshows. It is useful for displaying dashboards, monitoring tools, presentations, advertisements, reports, marketing, or any other web pages that need to be cycled through regularly on a screen.
+Tabs Rotator automatically loads web pages from configured URLs in the new tabs and displays them as a slideshow. It is useful for displaying dashboards, monitoring tools, presentations, advertisements, reports, marketing, or any other web pages that need to be cycled through regularly on a screen.
 
 ## Features
 
@@ -21,18 +21,18 @@ Tabs Rotator automatically loads URLs in new tabs and displays them as slideshow
 
 ## Page Configuration Options
 
-| Name | Description | JSON Option | Type |
-| --- | --- | --- | --- |
-| URL | The link to the page to display. Can be remote (starting with `https://`) or local (starting with `file://`). | url | String |
-| Display Time | The time in seconds that the page is displayed. | delaySeconds | Number |
-| Reload After | Page reload interval in seconds. If set to `0`, the page will not reload. | reloadIntervalSeconds | Number |
+| Name         | Description                                                                                                   | JSON Option           | Type   |
+| ------------ | ------------------------------------------------------------------------------------------------------------- | --------------------- | ------ |
+| URL          | The link to the page to display. Can be remote (starting with `https://`) or local (starting with `file://`). | url                   | String |
+| Display Time | The time in seconds that the page is displayed.                                                               | delaySeconds          | Number |
+| Reload After | Page reload interval in seconds. If set to `0`, the page will not reload.                                     | reloadIntervalSeconds | Number |
 
 ## Remote Configuration Options
 
-| Name | Description | Type |
-| --- | --- | --- |
-| Configuration URL | URL to fetch the configuration from. | String |
-| Reload Interval | Interval in minutes for reloading the configuration. If set to `0`, the configuration will not reload. | Number |
+| Name              | Description                                                                                            | Type   |
+| ----------------- | ------------------------------------------------------------------------------------------------------ | ------ |
+| Configuration URL | URL to fetch the configuration from.                                                                   | String |
+| Reload Interval   | Interval in minutes for reloading the configuration. If set to `0`, the configuration will not reload. | Number |
 
 ## Configuration Sample
 

@@ -20,11 +20,10 @@ import {
 } from '@angular/forms';
 
 @Component({
-  selector: 'app-config-loader',
-  standalone: true,
-  templateUrl: './config-loader.component.html',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule],
+    selector: 'app-config-loader',
+    templateUrl: './config-loader.component.html',
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    imports: [CommonModule, FormsModule, ReactiveFormsModule]
 })
 export class ConfigLoaderComponent implements OnInit {
   @Output() valueChanges = new EventEmitter<ConfigData>();

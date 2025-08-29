@@ -2,11 +2,10 @@ import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component } from '@angular/core';
 
 @Component({
-  selector: 'app-diagnostics-panel',
-  standalone: true,
-  imports: [CommonModule],
-  templateUrl: './diagnostics-panel.component.html',
-  changeDetection: ChangeDetectionStrategy.OnPush,
+    selector: 'app-diagnostics-panel',
+    imports: [CommonModule],
+    templateUrl: './diagnostics-panel.component.html',
+    changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class DiagnosticsPanelComponent {
   loading = false;

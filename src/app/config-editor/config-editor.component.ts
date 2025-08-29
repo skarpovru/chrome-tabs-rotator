@@ -20,11 +20,10 @@ import { ConfigData, PageConfig } from '../models';
 import isEqual from 'lodash/isEqual';
 
 @Component({
-  selector: 'app-config-editor',
-  standalone: true,
-  templateUrl: './config-editor.component.html',
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, ReactiveFormsModule],
+    selector: 'app-config-editor',
+    templateUrl: './config-editor.component.html',
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    imports: [CommonModule, ReactiveFormsModule]
 })
 export class ConfigEditorComponent implements OnInit {
   @Output() valueChanges = new EventEmitter<ConfigData>();

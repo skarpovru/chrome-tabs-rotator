@@ -12,17 +12,16 @@ import { ConfigData, RemoteSettings, StorageKeys } from './models';
 import { ConfigLoaderService } from './services/config-loader.service';
 
 @Component({
-  selector: 'app-root',
-  standalone: true,
-  templateUrl: './app.component.html',
-  styleUrls: ['./app.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    CommonModule,
-    ConfigEditorComponent,
-    ConfigLoaderComponent,
-    DiagnosticsPanelComponent,
-  ],
+    selector: 'app-root',
+    templateUrl: './app.component.html',
+    styleUrls: ['./app.component.scss'],
+    changeDetection: ChangeDetectionStrategy.OnPush,
+    imports: [
+        CommonModule,
+        ConfigEditorComponent,
+        ConfigLoaderComponent,
+        DiagnosticsPanelComponent,
+    ]
 })
 export class AppComponent implements OnInit {
   isRotating = false;

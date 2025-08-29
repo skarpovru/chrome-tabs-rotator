@@ -60,7 +60,7 @@ export class RotationService {
         (result?.[StorageKeys.RotationState] as RotationState) ||
         new RotationState();
 
-      // DO NOT remove tabs here — worker can legally restart anytime in MV3.
+      // Do NOT remove tabs here — worker may restart in MV3
       this.rotationState = rotationState;
       this.currentIndex = Number((rotationState as any)?.currentIndex ?? 0);
       // Try to rebuild in-memory mapping so alarms work immediately after wake
@@ -149,12 +149,19 @@ export class RotationService {
       }
 
       this.enforceResumeAt = Date.now() + 15000; // 15s grace
-      await this.setRotationState(true);
 
       const { loadedConfig, loadedRemoteSettings } =
         await this.loadActualConfigurationFromLocalStorage();
 
       const startRotation = async (config: ConfigData) => {
+        if (!config?.pages || config.pages.length === 0) {
+          console.warn(
+            '[rotator] No pages configured — not starting rotation.'
+          );
+          await this.setRotationState(false);
+          return;
+        }
+        await this.setRotationState(true);
         await this.createTabs(config);
         await this.tryFullscreen(config);
         await this.startRotationProcess(config);
@@ -165,34 +172,36 @@ export class RotationService {
         !loadedRemoteSettings.configUrl ||
         !(loadedRemoteSettings.configReloadIntervalMinutes > 0)
       ) {
+        // Local config path
         await startRotation(loadedConfig);
       } else {
+        // Remote config path: try now, and schedule periodic reloads
         const loadAndStartRotation = async () => {
           try {
             const remoteConfig = await this.loadRemoteConfig(
-              loadedRemoteSettings.configUrl
+              loadedRemoteSettings.configUrl!
             );
             if (remoteConfig && !isEqual(this.currentConfig, remoteConfig)) {
               await chrome.storage.local.set({
                 [StorageKeys.RemoteConfig]: remoteConfig,
               });
               console.info('[rotator] Remote config saved to local storage.');
-
-              if (this.isRotating) {
-                await this.stopRotation();
-              }
+              if (this.isRotating) await this.stopRotation();
               await startRotation(remoteConfig);
+            } else if (!this.isRotating) {
+              // No remote config yet — ensure state reflects that we are idle
+              await this.setRotationState(false);
             }
           } catch (error) {
             console.error(
               '[rotator] Failed to load remote configuration:',
               error
             );
+            if (!this.isRotating) await this.setRotationState(false);
           }
         };
 
         await loadAndStartRotation();
-
         chrome.alarms.create(RotationService.ALARM_CONFIG, {
           periodInMinutes: loadedRemoteSettings.configReloadIntervalMinutes,
         });
@@ -453,6 +462,7 @@ export class RotationService {
         if (this.isRotating) {
           await this.stopRotation();
         }
+        await this.setRotationState(true);
         await this.createTabs(remoteConfig);
         await this.tryFullscreen(remoteConfig);
         await this.startRotationProcess(remoteConfig);
@@ -532,7 +542,6 @@ export class RotationService {
       await chrome.storage.local.set({
         [StorageKeys.RotationState]: this.rotationState,
       });
-
       await this.toolbarManagerService.trySetToolbarIcon(rotating);
     } catch (error) {
       console.error('[rotator] Failed to set rotation state:', error);
@@ -569,11 +578,8 @@ export class RotationService {
         return;
       }
       if (!this.tabsConfig || !(this.tabsConfig.tabs?.length > 0)) {
-        console.error(
-          '[rotator] Configuration is not loaded properly.',
-          this.tabsConfig
-        );
-        await this.stopRotation();
+        console.warn('[rotator] No tabs configured yet.');
+        await this.setRotationState(false);
         return;
       }
 
@@ -668,13 +674,13 @@ export class RotationService {
         const remoteConfigResult = await chrome.storage.local.get(
           StorageKeys.RemoteConfig
         );
-        const loadedRemoteSettings =
-          remoteSettingsResult[StorageKeys.RemoteSettings];
-        const loadedConfig = remoteConfigResult[StorageKeys.RemoteConfig];
-
-        if (!loadedConfig) {
-          throw new Error('Remote configuration is not available.');
-        }
+        const loadedRemoteSettings = remoteSettingsResult[
+          StorageKeys.RemoteSettings
+        ] as RemoteSettings | undefined;
+        const loadedConfig =
+          (remoteConfigResult[StorageKeys.RemoteConfig] as
+            | ConfigData
+            | undefined) || new ConfigData();
 
         this.currentConfig = loadedConfig;
         return { loadedConfig, loadedRemoteSettings };
@@ -682,11 +688,10 @@ export class RotationService {
         const localConfigResult = await chrome.storage.local.get(
           StorageKeys.LocalConfig
         );
-        const loadedConfig = localConfigResult[StorageKeys.LocalConfig];
-
-        if (!loadedConfig) {
-          throw new Error('Local configuration is not available.');
-        }
+        const loadedConfig =
+          (localConfigResult[StorageKeys.LocalConfig] as
+            | ConfigData
+            | undefined) || new ConfigData();
 
         this.currentConfig = loadedConfig;
         return { loadedConfig };
@@ -696,7 +701,8 @@ export class RotationService {
         '[rotator] Failed to load configuration from local storage:',
         error
       );
-      throw error;
+      // Return an empty config instead of throwing — first run support
+      return { loadedConfig: new ConfigData() };
     }
   }
 
@@ -776,10 +782,7 @@ export class RotationService {
 
     this.tabsConfig = new TabsConfig();
     const tabPromises = configData.pages.map(async (page, index) => {
-      const tab = new TabConfig({
-        page,
-        active: index === 0,
-      });
+      const tab = new TabConfig({ page, active: index === 0 });
       const createdTab = await this.createTab(tab);
       if (createdTab) {
         this.tabsConfig?.tabs.push(createdTab);

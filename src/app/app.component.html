@@ -55,12 +55,8 @@
         (click)="toggleDiagnostics()"
         aria-label="Toggle Diagnostics"
       >
-        <fa-icon *ngIf="showDiagnostics" [icon]="faWrench" />
-        <fa-icon
-          *ngIf="!showDiagnostics"
-          [icon]="faWrench"
-          class="text-white"
-        />
+        <fa-icon *ngIf="showDiagnostics" [icon]="faWrench" class="text-white" />
+        <fa-icon *ngIf="!showDiagnostics" [icon]="faWrench" />
       </button>
     </div>
   </div>

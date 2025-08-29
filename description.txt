@@ -1,0 +1,27 @@
+Tabs Rotator cycles through a list of web pages in separate tabs, like a slideshow.
+Perfect for dashboards, monitoring, TVs, info-kiosks, reports, and digital signage.
+
+Highlights:
+
+- Rotate web or local pages (file:// links supported)
+- Per-page display time and auto-reload
+- Import/Export settings; Remote JSON config with auto-updates
+- Retries and skips failing pages automatically
+- Persists across restarts; prevents tab spam
+- Offline-friendly: keeps last good version if updates fail
+
+How to use:
+
+- Open the extension and add your pages
+- Set display time and optional reload interval
+- Start rotation; press F11 for fullscreen or configure with "Start in Fullscreen Mode" option
+- To stop rotation, first exit from the full screen mode by pressing F11, then click on the extension icon and click Stop.
+
+For local files, enable Allow access to file URLs under chrome://extensions/
+
+Privacy:
+- No tracking or analytics
+- Only minimal permissions to rotate tabs and store your settings
+- Remote config is read-only; nothing is uploaded
+
+Need help or want a feature? Open an issue: github.com/skarpovru/chrome-tabs-rotator/issues

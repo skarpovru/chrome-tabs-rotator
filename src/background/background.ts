@@ -65,23 +65,19 @@ if (chrome.tabs && chrome.tabs.onRemoved) {
   chrome.tabs.onRemoved.addListener((tabId) => {
     (async () => {
       try {
-        // ignore onRemoved events triggered by Stop
-        if ((rotationService as any).isStopping && rotationService.isStopping())
-          return;
         await rotationService.tryRemoveTabFromRotationOnClose(tabId);
-      } catch (error) {
-        console.error('[bg] onRemoved failed:', error);
+      } catch (e) {
+        console.error('[bg] onRemoved failed:', e);
       }
     })();
   });
 }
 
-// Messaging — IMPORTANT: send early acks to avoid port timeout.
+// Messaging — early ack to avoid port timeout.
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log('[bg] Message:', message);
 
   if (message.action === 'rotateTabs') {
-    // Ack early so popup doesn't get "port closed"
     sendResponse({ ok: true, status: 'starting' });
     (async () => {
       try {

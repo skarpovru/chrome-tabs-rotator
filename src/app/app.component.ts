@@ -10,20 +10,23 @@ import { ConfigLoaderComponent } from './config-loader/config-loader.component';
 import { DiagnosticsPanelComponent } from './diagnostics-panel/diagnostics-panel.component';
 import { ConfigData, RemoteSettings, StorageKeys } from './models';
 import { ConfigLoaderService } from './services/config-loader.service';
+import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
+import { faWrench } from '@fortawesome/free-solid-svg-icons';
 
 @Component({
     selector: 'app-root',
     templateUrl: './app.component.html',
-    styleUrls: ['./app.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
     imports: [
         CommonModule,
         ConfigEditorComponent,
         ConfigLoaderComponent,
         DiagnosticsPanelComponent,
+        FontAwesomeModule
     ]
 })
 export class AppComponent implements OnInit {
+  faWrench = faWrench;
   isRotating = false;
   localConfig?: ConfigData;
   remoteSettings?: RemoteSettings;

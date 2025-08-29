@@ -8,35 +8,35 @@
     <div class="flex justify-end flex-wrap gap-2">
       <button
         *ngIf="!useRemoteConfig"
-        class="px-4 py-2 rounded shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        class="px-4 py-2 rounded-sm shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
         (click)="onImportLocalConfig()"
       >
         Import
       </button>
       <button
         *ngIf="!useRemoteConfig && localConfig"
-        class="px-4 py-2 rounded shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        class="px-4 py-2 rounded-sm shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
         (click)="onExportLocalConfig()"
       >
         Export
       </button>
       <button
         *ngIf="useRemoteConfig"
-        class="px-4 py-2 rounded shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        class="px-4 py-2 rounded-sm shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
         (click)="onChangeUseRemoteConfig(false)"
       >
         Switch to Local Config
       </button>
       <button
         *ngIf="!useRemoteConfig"
-        class="px-4 py-2 rounded shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        class="px-4 py-2 rounded-sm shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
         (click)="onChangeUseRemoteConfig(true)"
       >
         Switch to Remote Config
       </button>
       <button
         *ngIf="!isRotating"
-        class="px-4 py-2 rounded shadow-md transition duration-300 ease-in-out bg-primary text-white hover:bg-primary-600"
+        class="px-4 py-2 rounded-sm shadow-md transition duration-300 ease-in-out bg-primary text-white hover:bg-primary-600"
         (click)="startRotation()"
         [disabled]="isRotationDisabled"
       >
@@ -44,19 +44,23 @@
       </button>
       <button
         *ngIf="isRotating"
-        class="px-4 py-2 rounded shadow-md transition duration-300 ease-in-out bg-warn text-white hover:bg-warn-600"
+        class="px-4 py-2 rounded-sm shadow-md transition duration-300 ease-in-out bg-warn text-white hover:bg-warn-600"
         (click)="stopRotation()"
         [disabled]="isRotationDisabled"
       >
         Stop
       </button>
       <button
-        class="px-4 py-2 rounded shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        class="px-4 py-2 rounded-sm shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
         (click)="toggleDiagnostics()"
         aria-label="Toggle Diagnostics"
       >
-        <i *ngIf="showDiagnostics" class="fa fa-eye-slash"></i>
-        <i *ngIf="!showDiagnostics" class="fa fa-eye"></i>
+        <fa-icon *ngIf="showDiagnostics" [icon]="faWrench" />
+        <fa-icon
+          *ngIf="!showDiagnostics"
+          [icon]="faWrench"
+          class="text-white"
+        />
       </button>
     </div>
   </div>

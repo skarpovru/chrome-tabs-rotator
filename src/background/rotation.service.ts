@@ -253,7 +253,7 @@ export class RotationService {
       };
       const listener = (
         updatedTabId: number,
-        changeInfo: chrome.tabs.TabChangeInfo
+        changeInfo: chrome.tabs.OnUpdatedInfo
       ) => {
         if (
           tabConfig &&

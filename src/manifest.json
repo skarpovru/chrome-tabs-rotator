@@ -3,7 +3,7 @@
   "name": "Tabs Rotator / Slideshow",
   "short_name": "Tabs Rotator",
   "version": "1.2",
-  "description": "Rotate through a set of URLs at specified intervals. Automatically switches between opened tabs. Each web page preloaded in the background.",
+  "description": "Rotates through a set of URLs at specified intervals. Preloads pages in the background and automatically switches between tabs.",
   "permissions": ["tabs", "storage", "activeTab", "webNavigation", "alarms"],
   "host_permissions": ["*://*/*"],
   "background": {

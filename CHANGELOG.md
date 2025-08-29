@@ -15,3 +15,4 @@
 - Persists currentIndex in storage so rotation survives worker sleep/restart
 - Adds anti-spam guards to prevent runaway tab creation
 - Added diagnostics UI
+- Updated to Angular 20 and Tailwind CSS 4

@@ -8,7 +8,7 @@ Highlights:
 - Import/Export settings; Remote JSON config with auto-updates
 - Retries and skips failing pages automatically
 - Persists across restarts; prevents tab spam
-- Offline-friendly: keeps last good version if updates fail
+- Offline-friendly: keeps the last good version if updates fail
 
 How to use:
 

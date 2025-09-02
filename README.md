@@ -14,12 +14,14 @@ A lightweight Chrome/Chromium extension that cycles through a list of URLs in se
     - [Local Configuration](#local-configuration)
     - [Remote Configuration (Auto-Update)](#remote-configuration-auto-update)
     - [Page Options](#page-options)
+    - [OS Autostart (Windows)](#os-autostart-windows)
   - [Configuration Examples](#configuration-examples)
     - [Local / Inline](#local--inline)
     - [Remote (host this JSON and point the extension to it)](#remote-host-this-json-and-point-the-extension-to-it)
   - [Tips \& Troubleshooting](#tips--troubleshooting)
   - [Privacy \& Permissions](#privacy--permissions)
   - [Development](#development)
+  - [Changelog](#changelog)
   - [Support](#support)
 
 ---
@@ -76,6 +78,11 @@ A small public example is here:
 | **URL**          | The page to display. `https://…` or `file://…`.                    | `url`                   | String |
 | **Display Time** | Time **in seconds** the page stays visible before switching.       | `delaySeconds`          | Number |
 | **Reload After** | Page reload interval **in seconds**. Use `0` to disable reloading. | `reloadIntervalSeconds` | Number |
+
+### OS Autostart (Windows)
+
+For automatic startup of Chrome on sign-in, follow the short guide:
+[Windows Autostart (Chrome) — Windows 10/11](windows-autostart.md).
 
 ---
 
@@ -176,6 +183,12 @@ Requirements: **Node.js ≥ 18**, **npm** and **yarn**.
    - Click **Load unpacked** and choose the **subfolder inside `dist/`** created by the build
 
 > Tip: If you change background or options code, the service worker may need a manual reload in `chrome://extensions/` during development.
+
+---
+
+## Changelog
+
+For the full change log, open this file: [Changelog](CHANGELOG.md).
 
 ---
 

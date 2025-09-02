@@ -16,3 +16,7 @@
 - Adds anti-spam guards to prevent runaway tab creation
 - Added diagnostics UI
 - Updated to Angular 20 and Tailwind CSS 4
+
+## [1.3] - 2025-09-02
+
+- Fixed the continuation of rotation after browser/computer restart.

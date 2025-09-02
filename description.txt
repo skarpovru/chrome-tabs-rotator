@@ -19,9 +19,35 @@ How to use:
 
 For local files, enable Allow access to file URLs under chrome://extensions/
 
+To start Chrome automatically after a Windows restart, follow this guide: https://github.com/skarpovru/chrome-tabs-rotator/blob/main/windows-autostart.md
+
+Open source:
+
+- Repository (README, docs): https://github.com/skarpovru/chrome-tabs-rotator
+- License: MIT
+
 Privacy:
+
 - No tracking or analytics
 - Only minimal permissions to rotate tabs and store your settings
 - Remote config is read-only; nothing is uploaded
+
+Changelog:
+
+[1.0] - 2024-08-28
+- Initial release.
+
+[1.1] - 2024-10-07
+- Immediately save imported configuration into the browser storage.
+- Added "Allow access to file URLs" activation instruction.
+
+[1.2] - 2025-08-28
+- Uses chrome.alarms for all scheduling (service-worker friendly)
+- Persists currentIndex in storage so rotation survives worker sleep/restart
+- Adds anti-spam guards to prevent runaway tab creation
+- Added diagnostics UI
+
+[1.3] - 2025-09-02
+- Fixed the continuation of rotation after browser/computer restart.
 
 Need help or want a feature? Open an issue: github.com/skarpovru/chrome-tabs-rotator/issues

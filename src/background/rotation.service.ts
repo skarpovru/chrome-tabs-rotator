@@ -81,6 +81,26 @@ export class RotationService {
       this.rotationState = state as RotationState;
       this.currentIndex = Number(state?.currentIndex ?? 0);
 
+      // If Chrome restarted, previously tracked tabs may no longer exist.
+      // Ensure we still have a complete set of tabs for the configured pages; otherwise re-initialize.
+      const { loadedConfig } = await this.loadActualConfigurationFromLocalStorage();
+      const expectedPages = loadedConfig?.pages?.length ?? 0;
+      let aliveCount = 0;
+      const tracked = Array.isArray(this.rotationState.tabIds)
+        ? [...new Set(this.rotationState.tabIds)]
+        : [];
+      for (const id of tracked) {
+        try {
+          if (id && (await this.ensureTabExists(id))) aliveCount++;
+        } catch {}
+      }
+
+      // If no tabs (or fewer than pages configured) are alive, perform a clean initialize to recreate them.
+      if (expectedPages > 0 && aliveCount < expectedPages) {
+        await this.initialize();
+        return;
+      }
+
       const alarms = await chrome.alarms.getAll();
       const hasRotate = alarms.some(
         (a) => a.name === RotationService.ALARM_ROTATE
@@ -189,15 +209,26 @@ export class RotationService {
               if (this.isRotating) await this.stopRotation();
               await startRotation(remoteConfig);
             } else if (!this.isRotating) {
-              // No remote config yet — ensure state reflects that we are idle
-              await this.setRotationState(false);
+              // Remote fetch failed or unchanged — fall back to last saved config
+              if (loadedConfig?.pages?.length) {
+                await startRotation(loadedConfig);
+              } else {
+                await this.setRotationState(false);
+              }
             }
           } catch (error) {
             console.error(
               '[rotator] Failed to load remote configuration:',
               error
             );
-            if (!this.isRotating) await this.setRotationState(false);
+            // Fall back to last saved config if present
+            if (!this.isRotating) {
+              if (loadedConfig?.pages?.length) {
+                await startRotation(loadedConfig);
+              } else {
+                await this.setRotationState(false);
+              }
+            }
           }
         };
 

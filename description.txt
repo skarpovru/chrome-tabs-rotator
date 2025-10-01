@@ -50,4 +50,9 @@ Changelog:
 [1.3] - 2025-09-02
 - Fixed the continuation of rotation after browser/computer restart.
 
+[1.4] - 2025-09-30
+- Optional setting to prevent stealing window focus during rotation
+- Watchdog self-heals if a rotation becomes overdue
+- Added Force rotate button for immediate manual advance
+
 Need help or want a feature? Open an issue: github.com/skarpovru/chrome-tabs-rotator/issues

@@ -77,9 +77,25 @@
     Latest Loaded Configuration
   </h2>
 
-  <div class="flex items-center gap-2" *ngIf="configData">
-    <label class="text-md">Start in Fullscreen Mode:</label>
-    <span>{{ configData.isFullscreen ? "Enabled" : "Disabled" }}</span>
+  <div class="flex items-center flex-wrap gap-6 text-sm" *ngIf="configData">
+    <span class="flex items-center gap-1">
+      <span class="font-medium">Fullscreen:</span>
+      <span
+        [ngClass]="configData.isFullscreen ? 'text-green-600' : 'text-gray-500'"
+      >
+        {{ configData.isFullscreen ? "On" : "Off" }}
+      </span>
+    </span>
+    <span class="flex items-center gap-1">
+      <span class="font-medium">Prevent focus:</span>
+      <span
+        [ngClass]="
+          configData.preventWindowFocus ? 'text-green-600' : 'text-gray-500'
+        "
+      >
+        {{ configData.preventWindowFocus ? "On" : "Off" }}
+      </span>
+    </span>
   </div>
 
   <table class="table-auto w-full" *ngIf="configData">

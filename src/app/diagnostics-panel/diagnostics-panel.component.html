@@ -34,6 +34,14 @@
       >
         Copy JSON
       </button>
+      <button
+        class="px-3 py-1.5 rounded-sm shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        (click)="forceRotate()"
+        [disabled]="loading"
+        title="Force immediate rotation now"
+      >
+        Force rotate
+      </button>
     </div>
   </div>
 
@@ -63,6 +71,14 @@
           <li>
             <span class="text-gray-600">Tabs in window:</span>
             {{ d.windowTabCount }}
+          </li>
+          <li *ngIf="d.lastRotationAt">
+            <span class="text-gray-600">Last rotation at:</span>
+            {{ d.lastRotationAt }} (age {{ d.lastRotationAgeSeconds }}s)
+          </li>
+          <li *ngIf="d.nextRotationDueAt">
+            <span class="text-gray-600">Next rotation due:</span>
+            {{ d.nextRotationDueAt }}
           </li>
           <li><span class="text-gray-600">Now:</span> {{ d.now }}</li>
         </ul>

@@ -20,10 +20,10 @@ import { ConfigData, PageConfig } from '../models';
 import isEqual from 'lodash/isEqual';
 
 @Component({
-    selector: 'app-config-editor',
-    templateUrl: './config-editor.component.html',
-    changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [CommonModule, ReactiveFormsModule]
+  selector: 'app-config-editor',
+  templateUrl: './config-editor.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [CommonModule, ReactiveFormsModule],
 })
 export class ConfigEditorComponent implements OnInit {
   @Output() valueChanges = new EventEmitter<ConfigData>();
@@ -33,12 +33,14 @@ export class ConfigEditorComponent implements OnInit {
   configForm: FormGroup;
   pagesFormArray = new FormArray<FormGroup>([]);
   isFullscreenControl = new FormControl(false);
+  preventWindowFocusControl = new FormControl(false);
 
   formChanged = false;
 
   constructor(private fb: FormBuilder, private cdr: ChangeDetectorRef) {
     this.configForm = this.fb.group({
       isFullscreen: this.isFullscreenControl,
+      preventWindowFocus: this.preventWindowFocusControl,
       pages: this.pagesFormArray,
     });
   }
@@ -69,6 +71,7 @@ export class ConfigEditorComponent implements OnInit {
     const pages = data?.pages || [];
 
     this.isFullscreenControl.setValue(data?.isFullscreen ?? false);
+    this.preventWindowFocusControl.setValue(data?.preventWindowFocus ?? false);
     this.pagesFormArray = new FormArray<FormGroup>([]);
     if (pages.length === 0) {
       // Start by default with one empty page
@@ -113,8 +116,17 @@ export class ConfigEditorComponent implements OnInit {
       alert('Please fill in all fields.');
       return;
     }
-
-    this.latestConfigData = this.configForm.value as ConfigData;
+    const pages: PageConfig[] = this.pagesFormArray.controls.map((g) => ({
+      url: g.value.url,
+      delaySeconds: g.value.delaySeconds,
+      reloadIntervalSeconds: g.value.reloadIntervalSeconds,
+    }));
+    this.latestConfigData = {
+      ...(this.initialConfigData ?? {}),
+      isFullscreen: !!this.isFullscreenControl.value,
+      preventWindowFocus: !!this.preventWindowFocusControl.value,
+      pages,
+    } as ConfigData;
     this.valueChanges.emit(this.latestConfigData);
     this.formChanged = false;
   }

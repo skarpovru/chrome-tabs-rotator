@@ -66,6 +66,23 @@ export class DiagnosticsPanelComponent {
     navigator.clipboard.writeText(data).catch(() => {});
   }
 
+  forceRotate() {
+    this.loading = true;
+    this.error = undefined;
+    chrome.runtime.sendMessage({ action: 'forceRotateNow' }, (res) => {
+      const lastErr = chrome.runtime.lastError;
+      if (lastErr) {
+        this.error = lastErr.message || 'Message failed.';
+      } else if (!res || res.ok === false) {
+        this.error = (res && res.error) || 'Force rotate failed.';
+      } else if (res.diagnostics) {
+        this.diags = res.diagnostics;
+      }
+      this.loading = false;
+      this.cdr.detectChanges();
+    });
+  }
+
   toggleAuto() {
     this.autoRefresh = !this.autoRefresh;
     if (this.autoRefresh) {

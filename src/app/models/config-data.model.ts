@@ -11,6 +11,11 @@ export class ConfigData {
    */
   isFullscreen: boolean = true;
 
+  /**
+   * Indicates if the extension should avoid forcing window focus.
+   */
+  preventWindowFocus?: boolean;
+
   constructor(init?: Partial<ConfigData>) {
     Object.assign(this, init);
   }

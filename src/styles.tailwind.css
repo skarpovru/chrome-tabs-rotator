@@ -21,8 +21,10 @@
       "Courier New", monospace;
   --color-red-500: oklch(63.7% 0.237 25.331);
   --color-red-600: oklch(57.7% 0.245 27.325);
+  --color-green-600: oklch(62.7% 0.194 149.214);
   --color-gray-100: oklch(96.7% 0.003 264.542);
   --color-gray-200: oklch(92.8% 0.006 264.531);
+  --color-gray-500: oklch(55.1% 0.027 264.364);
   --color-gray-600: oklch(44.6% 0.03 256.802);
   --color-white: #fff;
   --spacing: 0.25rem;
@@ -356,6 +358,9 @@
   .justify-end {
     justify-content: flex-end;
   }
+  .gap-1 {
+    gap: calc(var(--spacing) * 1);
+  }
   .gap-2 {
     gap: calc(var(--spacing) * 2);
   }
@@ -364,6 +369,9 @@
   }
   .gap-4 {
     gap: calc(var(--spacing) * 4);
+  }
+  .gap-6 {
+    gap: calc(var(--spacing) * 6);
   }
   .space-y-0\.5 {
     :where(& > :not(:last-child)) {
@@ -503,8 +511,14 @@
     --tw-tracking: var(--tracking-tight);
     letter-spacing: var(--tracking-tight);
   }
+  .text-gray-500 {
+    color: var(--color-gray-500);
+  }
   .text-gray-600 {
     color: var(--color-gray-600);
+  }
+  .text-green-600 {
+    color: var(--color-green-600);
   }
   .text-primary {
     color: var(--color-primary);

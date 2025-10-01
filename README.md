@@ -18,6 +18,7 @@ A lightweight Chrome/Chromium extension that cycles through a list of URLs in se
   - [Configuration Examples](#configuration-examples)
     - [Local / Inline](#local--inline)
     - [Remote (host this JSON and point the extension to it)](#remote-host-this-json-and-point-the-extension-to-it)
+  - [Advanced Settings](#advanced-settings)
   - [Tips \& Troubleshooting](#tips--troubleshooting)
   - [Privacy \& Permissions](#privacy--permissions)
   - [Development](#development)
@@ -35,6 +36,10 @@ A lightweight Chrome/Chromium extension that cycles through a list of URLs in se
 - Built-in **retry** and **temporary skip** for failing pages.
 - **Persistence across browser restarts** without tab spam.
 - **Offline-friendly:** keeps the last good version if a page update fails.
+- Optional **Prevent window focus** mode (keeps Chrome in background while rotating)
+- **Rotation watchdog self-heal** (recovers if a rotate alarm is missed)
+- **Diagnostics panel** with live state, timestamps & force actions
+- One-click **Force rotate now** button for manual advancement
 
 Screenshots:
 
@@ -109,7 +114,8 @@ For automatic startup of Chrome on sign-in, follow the short guide:
       "reloadIntervalSeconds": 3600
     }
   ],
-  "isFullscreen": true
+  "isFullscreen": true,
+  "preventWindowFocus": true
 }
 ```
 
@@ -121,7 +127,32 @@ For automatic startup of Chrome on sign-in, follow the short guide:
     { "url": "https://example.com/one", "delaySeconds": 15, "reloadIntervalSeconds": 0 },
     { "url": "https://example.com/two", "delaySeconds": 20, "reloadIntervalSeconds": 120 }
   ],
-  "isFullscreen": true
+  "isFullscreen": true,
+  "preventWindowFocus": false
+}
+```
+
+---
+
+## Advanced Settings
+
+These optional controls help tune behavior for signage / unattended scenarios:
+
+- **Prevent window focus** (`preventWindowFocus`): When enabled, tab rotation won’t bring the Chrome window to the foreground. Useful if you’re using the machine for something else while a dashboard rotates in the background (e.g. on a secondary display).
+- **Start in Fullscreen Mode** (`isFullscreen`): Automatically requests fullscreen (F11 equivalent) after tabs are created.
+- **Remote Reload Interval**: Defines how often (in minutes) the remote JSON config is re-fetched. Set to `0` to disable automatic refresh but still perform an initial load.
+- **Force rotate (Diagnostics)**: Manually advances to the next page immediately; handy for testing or if you just updated a page.
+- **Watchdog Self-Heal**: Internal mechanism that restarts rotation if the scheduled alarm was missed (no UI toggle; always on).
+
+Minimal example with advanced keys:
+
+```jsonc
+{
+  "pages": [
+    { "url": "https://example.com/dashboard", "delaySeconds": 20, "reloadIntervalSeconds": 300 }
+  ],
+  "isFullscreen": false,
+  "preventWindowFocus": true
 }
 ```
 
@@ -143,6 +174,12 @@ For automatic startup of Chrome on sign-in, follow the short guide:
 
 - **Tabs keep multiplying**  
   The extension persists state across restarts and prevents tab spam and removes all opened tabs on stop. If something seems off, stop rotation, close tabs, and start again.
+  
+- **Need to advance immediately**  
+  Open Diagnostics → click **Force rotate** to move to the next page instantly.
+
+- **Rotation stalled / stopped at last tab**  
+  The watchdog typically restarts it automatically. Open Diagnostics to confirm timestamps. Use **Force rotate** if needed.
 
 ---
 

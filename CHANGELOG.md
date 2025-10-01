@@ -20,3 +20,11 @@
 ## [1.3] - 2025-09-02
 
 - Fixed the continuation of rotation after browser/computer restart.
+
+## [1.4] - 2025-09-30
+
+- Added optional "Prevent window focus" setting (avoid stealing OS focus while rotating)
+- Added rotation watchdog self-heal (recovers if a rotate alarm is missed / stalled)
+- Added diagnostics timestamps (last rotation time, next due time)
+- Added "Force rotate" button in Diagnostics panel
+- Added manual focus control logic to fullscreen start

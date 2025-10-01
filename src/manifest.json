@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Tabs Rotator / Slideshow",
   "short_name": "Tabs Rotator",
-  "version": "1.3",
+  "version": "1.4",
   "description": "Rotates through a set of URLs at specified intervals. Preloads pages in the background and automatically switches between tabs.",
   "permissions": ["tabs", "storage", "activeTab", "webNavigation", "alarms"],
   "host_permissions": ["*://*/*"],

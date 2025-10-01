@@ -27,9 +27,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         await rotationService.onRotateAlarm();
       } else if (alarm.name === 'configReload') {
         await rotationService.onConfigReloadAlarm();
+      } else if (alarm.name === 'rotationWatchdog') {
+        await rotationService.onWatchdogAlarm();
       } else if (alarm.name.startsWith('reload:')) {
         const id = Number(alarm.name.split(':')[1]);
         await rotationService.onReloadAlarm(id);
+      } else {
+        console.warn('[bg] Unknown alarm name received:', alarm.name);
       }
     } catch (e) {
       console.error('[bg] Alarm handler error:', e, chrome.runtime.lastError);
@@ -127,6 +131,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try {
         const diags = await rotationService.enforceNow();
         sendResponse({ ok: true, diagnostics: diags });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'forceRotateNow') {
+    (async () => {
+      try {
+        const result = await rotationService.forceRotateNow();
+        sendResponse(result);
       } catch (e) {
         sendResponse({ ok: false, error: String(e) });
       }

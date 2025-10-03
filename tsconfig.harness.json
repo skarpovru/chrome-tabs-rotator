@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist/harness",
+    // Override module system for Node harness to simplify imports (CommonJS).
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "types": ["node", "chrome-types"],
+    "downlevelIteration": true
+  },
+  "include": [
+    "scripts/harness-chrome.d.ts",
+    "scripts/tab-manager-harness.ts",
+    "src/background/tab-manager.service.ts",
+    "src/app/models/**/*.ts"
+  ],
+  "exclude": ["src/background/metrics.service.ts"]
+}

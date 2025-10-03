@@ -49,6 +49,17 @@
     <div *ngIf="loading" class="text-gray-600">Loading…</div>
     <div *ngIf="error" class="text-red-600">{{ error }}</div>
 
+    <div *ngIf="metricsCounters as mc" class="mb-3 border rounded-sm p-2 bg-ghost">
+      <div class="font-semibold mb-1">Live Metrics (streaming)</div>
+      <ul class="grid grid-cols-2 md:grid-cols-5 gap-x-4 gap-y-1 text-xs">
+        <li><span class="text-gray-600">Rotations:</span> {{ mc.rotations }}</li>
+        <li><span class="text-gray-600">Stalls:</span> {{ mc.stalls }}</li>
+        <li><span class="text-gray-600">Focus attempts:</span> {{ mc.focusAttempts }}</li>
+        <li><span class="text-gray-600">Tab creations:</span> {{ mc.tabCreations }}</li>
+        <li><span class="text-gray-600">Reloads scheduled:</span> {{ mc.reloadsScheduled }}</li>
+      </ul>
+    </div>
+
     <div *ngIf="diags as d" class="grid grid-cols-1 md:grid-cols-2 gap-3">
       <div class="rounded-sm bg-ghost p-2">
         <div class="font-semibold mb-1">Status</div>
@@ -139,6 +150,55 @@
           class="max-h-56 overflow-auto border rounded-sm p-2 bg-white text-xs"
           >{{ d.windowTabsPreview | json }}</pre
         >
+      </div>
+      <div class="rounded-sm bg-ghost p-2 col-span-1 md:col-span-2" *ngIf="d.lastActivatedTabId || d.lastActivationError || d.debugActivationLogging !== undefined">
+        <div class="font-semibold mb-1">Activation Diagnostics</div>
+        <ul class="text-xs space-y-0.5">
+          <li><span class="text-gray-600">Last activated tab ID:</span> {{ d.lastActivatedTabId || 'n/a' }}</li>
+          <li><span class="text-gray-600">Last activated page index:</span> {{ d.lastActivatedPageIndex !== null ? d.lastActivatedPageIndex : 'n/a' }}</li>
+          <li><span class="text-gray-600">Last activation error:</span> <span [class.text-red-600]="d.lastActivationError">{{ d.lastActivationError || 'none' }}</span></li>
+          <li><span class="text-gray-600">Debug activation logging:</span> {{ d.debugActivationLogging ? 'ON' : 'OFF' }}</li>
+          <li *ngIf="d.activationSuccessAgeSeconds !== null"><span class="text-gray-600">Seconds since last success:</span> {{ d.activationSuccessAgeSeconds }}</li>
+          <li>
+            <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" [checked]="d.debugActivationLogging" (change)="toggleDebugActivationLogging()" [disabled]="togglingDebug" />
+              <span class="text-gray-700">Enable detailed activation logs</span>
+              <span *ngIf="togglingDebug" class="text-xs text-gray-500">(saving…)</span>
+            </label>
+          </li>
+          <li class="flex gap-2 pt-1">
+            <button class="px-2 py-0.5 text-xs rounded bg-secondary hover:bg-secondary-600" (click)="clearActivationError()" [disabled]="loading">Clear Error</button>
+            <button class="px-2 py-0.5 text-xs rounded bg-secondary hover:bg-secondary-600" (click)="clearActivationHistory()" [disabled]="loading">Clear History</button>
+          </li>
+        </ul>
+        <div *ngIf="d.activationHistory?.length" class="mt-2 border rounded-sm bg-white max-h-48 overflow-auto">
+          <table class="table-auto w-full text-[11px]">
+            <thead class="bg-gray-100 sticky top-0">
+              <tr>
+                <th class="px-1 py-0.5 text-left">Age(s)</th>
+                <th class="px-1 py-0.5 text-left">Tab</th>
+                <th class="px-1 py-0.5 text-left">Idx</th>
+                <th class="px-1 py-0.5 text-left">Stage</th>
+                <th class="px-1 py-0.5 text-left">Result</th>
+                <th class="px-1 py-0.5 text-left">Err</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let a of d.activationHistory | slice:-50" [class.bg-red-50]="!a.success" [class.bg-green-50]="a.success">
+                <td class="px-1 py-0.5">{{ ((d.now - a.at)/1000) | number:'1.0-0' }}</td>
+                <td class="px-1 py-0.5">{{ a.tabId }}</td>
+                <td class="px-1 py-0.5">{{ a.pageIndex }}</td>
+                <td class="px-1 py-0.5">{{ a.stage }}</td>
+                <td class="px-1 py-0.5">{{ a.success ? 'OK' : 'FAIL' }}</td>
+                <td class="px-1 py-0.5 truncate max-w-[120px]" [title]="a.error">{{ a.error || '' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div *ngIf="d.metrics" class="rounded-sm bg-ghost p-2 col-span-1 md:col-span-2">
+        <div class="font-semibold mb-1">Diagnostics Snapshot Metrics</div>
+        <pre class="max-h-40 overflow-auto border rounded-sm p-2 bg-white text-xs">{{ d.metrics | json }}</pre>
       </div>
     </div>
   </div>

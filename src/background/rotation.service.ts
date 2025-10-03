@@ -8,7 +8,28 @@ import {
 } from '../app/models';
 import { ConfigValidatorService, ToolbarManagerService } from '../app/services';
 import { CustomHttpClient } from './custom-http-client.service';
+import { ConfigService } from './config.service';
+import { FocusService } from './focus.service';
+import { TabManagerService } from './tab-manager.service';
+import { DiagnosticsService } from './diagnostics.service';
+import { StallGuardService } from './stall-guard.service';
+import { SchedulerService } from './scheduler.service';
+import { StorageService } from './storage.service';
 import isEqual from 'lodash/isEqual';
+import { safeRuntimeLastError } from '../shared';
+import { MetricsService } from './metrics.service';
+import { ActivationDiagnosticsService } from './activation-diagnostics.service';
+import { CountdownService } from './countdown.service';
+import { RotationStateRepository } from './rotation-state.repository';
+import { HealthMonitorService } from './health-monitor.service';
+import { FocusOrchestratorService } from './focus-orchestrator.service';
+import { TabLifecycleService } from './tab-lifecycle.service';
+import { InvariantRebuilderService } from './invariant-rebuilder.service';
+import { ActivationService } from './activation.service';
+import { RotationSchedulerService } from './rotation-scheduler.service';
+import { StartupRecoveryService } from './startup-recovery.service';
+import { RotationStateFacade } from './rotation-state.facade';
+import { RotationWatchdogService } from './rotation-watchdog.service';
 
 /**
  * RotationService (MV3-friendly)
@@ -19,15 +40,14 @@ export class RotationService {
   private defaultFailedPageReloadIntervalSeconds = 120;
 
   private currentIndex = 0;
-  private tabsConfig?: TabsConfig;
+  private tabsConfig?: TabsConfig; // mirror of tabManager.tabsConfig once initialized
   private currentConfig?: ConfigData;
   private windowId?: number;
 
   // Guards
   private rotating = false;
   private starting = false;
-  private creatingTabs = new WeakSet<TabConfig>();
-  private static readonly MAX_TABS_PER_PAGE = 2;
+  // Creation tracking & per-page cap enforced in TabManagerService; only minimal guard flags here.
 
   // Anti-spam: skip enforcement until this time (ms since epoch)
   private enforceResumeAt = 0;
@@ -37,19 +57,32 @@ export class RotationService {
 
   private stopping = false;
   // Diagnostics timestamps
-  private lastRotationAt: number | null = null; // ms since epoch of last successful rotateTabs end
-  private nextRotationDueAt: number | null = null; // ms since epoch when next rotate alarm should fire
+  // Health tracking delegated to HealthMonitorService
 
   // Watchdog
   private static readonly ALARM_WATCHDOG = 'rotationWatchdog';
   private watchdogIntervalSeconds = 60; // check every 60s
   private watchdogGraceSeconds = 10; // grace after expected due time
   // Focus diagnostics
-  private lastFocusAttemptAt: number | null = null; // ms epoch
-  private lastFocusAttemptSource: string | null = null; // 'rotateTabs' | 'openNextPageTab' | 'tryFullscreen'
-  private lastFocusAttemptWindowId: number | null = null;
-  private lastFocusAttemptSucceeded: boolean | null = null;
-  private lastFocusAttemptError: string | null = null;
+  private focusOrchestrator: FocusOrchestratorService;
+  // Rotation diagnostics
+  private lastActivatedTabId: number | null = null;
+  private lastActivatedPageIndex: number | null = null;
+  private rotationCycle: number = 0; // counts completed full cycles through all pages
+  // Stall diagnostics
+  private healthMonitor: HealthMonitorService = new HealthMonitorService();
+  // Debug flags
+  private debugActivationLogging = false;
+  // Activation diagnostics service
+  private activationDiagnostics: ActivationDiagnosticsService;
+  private countdown: CountdownService;
+  private rotationRepo: RotationStateRepository;
+  private stateFacade!: RotationStateFacade;
+  private tabLifecycle: TabLifecycleService;
+  private invariantRebuilder: InvariantRebuilderService;
+  private activationService: ActivationService;
+  private rotationScheduler: RotationSchedulerService;
+  private watchdogService!: RotationWatchdogService;
   public isStopping(): boolean {
     return this.stopping;
   }
@@ -61,95 +94,116 @@ export class RotationService {
   constructor(
     private http: CustomHttpClient,
     private configValidator: ConfigValidatorService,
-    private toolbarManagerService: ToolbarManagerService
+    private toolbarManagerService: ToolbarManagerService,
+    private configService: ConfigService = new ConfigService(
+      http,
+      configValidator
+    ),
+    private startupRecovery?: StartupRecoveryService,
+    private focusService: FocusService = new FocusService(),
+    private tabManager: TabManagerService = new TabManagerService(
+      new MetricsService()
+    ),
+    private diagnosticsService: DiagnosticsService = new DiagnosticsService(),
+    private stallGuard: StallGuardService = new StallGuardService(),
+    private scheduler: SchedulerService = new SchedulerService(),
+    private storage: StorageService = new StorageService(),
+    private metrics: MetricsService = new MetricsService()
   ) {
-    this.restorePreviousRotationState();
-  }
-
-  private async restorePreviousRotationState(): Promise<void> {
-    try {
-      console.log('[rotator] Restore previous rotation state.');
-      const result = await chrome.storage.local.get(StorageKeys.RotationState);
-      const rotationState =
-        (result?.[StorageKeys.RotationState] as RotationState) ||
-        new RotationState();
-
-      // Do NOT remove tabs here — worker may restart in MV3
-      this.rotationState = rotationState;
-      this.currentIndex = Number((rotationState as any)?.currentIndex ?? 0);
-      // Try to rebuild in-memory mapping so alarms work immediately after wake
-      await this.rebuildTabsFromState();
-    } catch (error) {
-      console.error('[rotator] Failed to restore rotation state:', error);
-    }
-  }
-
-  public async rescheduleIfNeeded(): Promise<void> {
-    try {
-      const state = (
-        await chrome.storage.local.get(StorageKeys.RotationState)
-      )?.[StorageKeys.RotationState] as any;
-
-      if (!state?.isRotating) return;
-
-      this.rotationState = state as RotationState;
-      this.currentIndex = Number(state?.currentIndex ?? 0);
-
-      // If Chrome restarted, previously tracked tabs may no longer exist.
-      // Ensure we still have a complete set of tabs for the configured pages; otherwise re-initialize.
-      const { loadedConfig } =
-        await this.loadActualConfigurationFromLocalStorage();
-      const expectedPages = loadedConfig?.pages?.length ?? 0;
-      let aliveCount = 0;
-      const tracked = Array.isArray(this.rotationState.tabIds)
-        ? [...new Set(this.rotationState.tabIds)]
-        : [];
-      for (const id of tracked) {
-        try {
-          if (id && (await this.ensureTabExists(id))) aliveCount++;
-        } catch {}
-      }
-
-      // If no tabs (or fewer than pages configured) are alive, perform a clean initialize to recreate them.
-      if (expectedPages > 0 && aliveCount < expectedPages) {
-        await this.initialize();
-        return;
-      }
-
-      const alarms = await chrome.alarms.getAll();
-      const hasRotate = alarms.some(
-        (a) => a.name === RotationService.ALARM_ROTATE
+    this.activationDiagnostics = new ActivationDiagnosticsService(this.storage);
+    this.countdown = new CountdownService(this.activationDiagnostics);
+    this.rotationRepo = new RotationStateRepository(this.storage);
+    this.stateFacade = new RotationStateFacade(
+      this.rotationRepo,
+      this.toolbarManagerService,
+      this.rotationState
+    );
+    // Lazily build invariantRebuilder before startupRecovery if needed
+    this.invariantRebuilder = new InvariantRebuilderService(
+      this.configService,
+      this.tabManager
+    );
+    if (!this.startupRecovery) {
+      this.startupRecovery = new StartupRecoveryService(
+        this.rotationRepo,
+        this.storage,
+        this.configService,
+        this.focusService,
+        this.tabManager,
+        this.scheduler,
+        this.invariantRebuilder,
+        this.healthMonitor,
+        this.activationDiagnostics
       );
-      if (!hasRotate) {
-        chrome.alarms.create(RotationService.ALARM_ROTATE, {
-          when: Date.now() + 1000,
-        });
-      }
-
-      const useRemote = (
-        await chrome.storage.local.get(StorageKeys.UseRemoteConfig)
-      )?.[StorageKeys.UseRemoteConfig] as boolean;
-      if (useRemote) {
-        const rs = (
-          await chrome.storage.local.get(StorageKeys.RemoteSettings)
-        )?.[StorageKeys.RemoteSettings] as RemoteSettings | undefined;
-        const minutes = rs?.configReloadIntervalMinutes ?? 0;
-        if (
-          minutes > 0 &&
-          !alarms.some((a) => a.name === RotationService.ALARM_CONFIG)
-        ) {
-          chrome.alarms.create(RotationService.ALARM_CONFIG, {
-            periodInMinutes: minutes,
-          });
+    }
+    // Asynchronously restore prior state via StartupRecoveryService (non-blocking constructor)
+    this.startupRecovery
+      .restore({ windowId: this.windowId })
+      .then((r) => {
+        // IMPORTANT: Do NOT replace the rotationState object reference after the facade has been created.
+        // stateFacade holds a captured reference to the original instance passed into its constructor.
+        // Reassigning (this.rotationState = r.rotationState) causes a divergence: the RotationService getter
+        // starts reading from the NEW object (with default isRotating=false) while the facade continues
+        // mutating the OLD object. This led to a race where startRotationProcess() set rotating=true via
+        // the facade, then the async restore() completed and overwrote this.rotationState with a fresh
+        // instance whose isRotating=false, so rotateTabs() immediately aborted with
+        // "rotate called while not rotating — ignoring." despite having just set rotation true.
+        if (r?.rotationState) {
+          const replaced = this.rotationState !== r.rotationState;
+            // Merge properties onto existing instance to preserve identity.
+          Object.assign(this.rotationState, r.rotationState);
+          if (replaced && this.rotationState.isRotating) {
+            // Optional debug log to surface that we merged a running state.
+            console.debug('[rotator] startupRecovery: merged restored rotationState (preserved identity).');
+          }
         }
-      }
-    } catch (e) {
-      console.error(
-        '[rotator] rescheduleIfNeeded failed',
-        e,
-        chrome.runtime.lastError
+        if (typeof r?.currentIndex === 'number')
+          this.currentIndex = r.currentIndex;
+        if (typeof (r as any)?.debugActivationLogging === 'boolean')
+          this.debugActivationLogging = (r as any).debugActivationLogging;
+      })
+      .catch((e) =>
+        console.warn('[rotator] startupRecovery.restore failed', e)
       );
-    }
+    this.tabLifecycle = new TabLifecycleService(
+      this.tabManager,
+      this.scheduler,
+      this.metrics
+    );
+    this.focusOrchestrator = new FocusOrchestratorService(
+      this.focusService,
+      this.metrics
+    );
+    this.activationService = new ActivationService({
+      diagnostics: this.activationDiagnostics,
+      focusOrchestrator: this.focusOrchestrator,
+      debugFlagProvider: () => this.debugActivationLogging,
+      onActivated: ({ tabId, pageIndex }) => {
+        this.lastActivatedTabId = tabId;
+        this.lastActivatedPageIndex = pageIndex;
+      },
+    });
+    this.rotationScheduler = new RotationSchedulerService(
+      this.scheduler,
+      this.healthMonitor,
+      this.countdown,
+      this.activationDiagnostics
+    );
+    this.watchdogService = new RotationWatchdogService(
+      this.healthMonitor,
+      this.scheduler,
+      {
+        intervalSeconds: this.watchdogIntervalSeconds,
+        graceSeconds: this.watchdogGraceSeconds,
+      }
+    );
+  }
+
+  // rescheduleIfNeeded now handled by StartupRecoveryService.rescheduleIfNeeded
+  public async rescheduleIfNeeded(): Promise<void> {
+    await this.startupRecovery?.rescheduleIfNeeded(this.rotationState, {
+      value: this.currentIndex,
+    });
   }
 
   async initialize(): Promise<void> {
@@ -162,16 +216,11 @@ export class RotationService {
       console.log('[rotator] initialize');
 
       // Clear alarms from any previous run
-      await chrome.alarms.clear(RotationService.ALARM_ROTATE);
-      await chrome.alarms.clear(RotationService.ALARM_CONFIG);
-      await chrome.alarms.clear(RotationService.ALARM_WATCHDOG);
-      // Clear all leftover reload:* alarms
-      const all = await chrome.alarms.getAll();
-      await Promise.all(
-        all
-          .filter((a) => a.name.startsWith('reload:'))
-          .map((a) => chrome.alarms.clear(a.name))
-      );
+      await this.scheduler.clear(RotationService.ALARM_ROTATE);
+      await this.scheduler.clear(RotationService.ALARM_CONFIG);
+      await this.scheduler.clear(RotationService.ALARM_WATCHDOG);
+      // Clear all leftover reload:* alarms via scheduler helper
+      await this.scheduler.clearAllReloads();
 
       if (this.isRotating) {
         await this.stopRotation();
@@ -187,17 +236,35 @@ export class RotationService {
       this.enforceResumeAt = Date.now() + 15000; // 15s grace
 
       const { loadedConfig, loadedRemoteSettings } =
-        await this.loadActualConfigurationFromLocalStorage();
+        await this.configService.loadFromStorage();
+      this.currentConfig = loadedConfig;
+      this.focusService.setConfig(this.currentConfig);
 
       const startRotation = async (config: ConfigData) => {
         if (!config?.pages || config.pages.length === 0) {
           console.warn(
             '[rotator] No pages configured — not starting rotation.'
           );
-          await this.setRotationState(false);
+          await this.stateFacade.set({
+            rotating: false,
+            currentIndex: this.currentIndex,
+            tabsConfig: this.tabsConfig,
+            tabIds: this.rotationState.tabIds,
+            lastActivatedPageIndex: this.lastActivatedPageIndex,
+            lastActivatedTabId: this.lastActivatedTabId,
+            rotationCycle: this.rotationCycle,
+          });
           return;
         }
-        await this.setRotationState(true);
+        await this.stateFacade.set({
+          rotating: true,
+          currentIndex: this.currentIndex,
+          tabsConfig: this.tabsConfig,
+          tabIds: this.rotationState.tabIds,
+          lastActivatedPageIndex: this.lastActivatedPageIndex,
+          lastActivatedTabId: this.lastActivatedTabId,
+          rotationCycle: this.rotationCycle,
+        });
         await this.createTabs(config);
         await this.tryFullscreen(config);
         await this.startRotationProcess(config);
@@ -214,11 +281,11 @@ export class RotationService {
         // Remote config path: try now, and schedule periodic reloads
         const loadAndStartRotation = async () => {
           try {
-            const remoteConfig = await this.loadRemoteConfig(
+            const remoteConfig = await this.configService.fetchRemoteConfig(
               loadedRemoteSettings.configUrl!
             );
             if (remoteConfig && !isEqual(this.currentConfig, remoteConfig)) {
-              await chrome.storage.local.set({
+              await this.storage.set({
                 [StorageKeys.RemoteConfig]: remoteConfig,
               });
               console.info('[rotator] Remote config saved to local storage.');
@@ -229,7 +296,15 @@ export class RotationService {
               if (loadedConfig?.pages?.length) {
                 await startRotation(loadedConfig);
               } else {
-                await this.setRotationState(false);
+                await this.stateFacade.set({
+                  rotating: false,
+                  currentIndex: this.currentIndex,
+                  tabsConfig: this.tabsConfig,
+                  tabIds: this.rotationState.tabIds,
+                  lastActivatedPageIndex: this.lastActivatedPageIndex,
+                  lastActivatedTabId: this.lastActivatedTabId,
+                  rotationCycle: this.rotationCycle,
+                });
               }
             }
           } catch (error) {
@@ -239,22 +314,30 @@ export class RotationService {
             );
             // Fall back to last saved config if present
             if (!this.isRotating) {
-              if (loadedConfig?.pages?.length) {
+              if (loadedConfig?.pages?.length)
                 await startRotation(loadedConfig);
-              } else {
-                await this.setRotationState(false);
+              else {
+                await this.stateFacade.set({
+                  rotating: false,
+                  currentIndex: this.currentIndex,
+                  tabsConfig: this.tabsConfig,
+                  tabIds: this.rotationState.tabIds,
+                  lastActivatedPageIndex: this.lastActivatedPageIndex,
+                  lastActivatedTabId: this.lastActivatedTabId,
+                  rotationCycle: this.rotationCycle,
+                });
               }
             }
           }
         };
 
         await loadAndStartRotation();
-        chrome.alarms.create(RotationService.ALARM_CONFIG, {
+        await this.scheduler.create(RotationService.ALARM_CONFIG, {
           periodInMinutes: loadedRemoteSettings.configReloadIntervalMinutes,
         });
       }
       // Start watchdog after initialization
-      chrome.alarms.create(RotationService.ALARM_WATCHDOG, {
+      await this.scheduler.create(RotationService.ALARM_WATCHDOG, {
         periodInMinutes: this.watchdogIntervalSeconds / 60,
       });
     } catch (error) {
@@ -266,101 +349,27 @@ export class RotationService {
   }
 
   private async tryFullscreen(configData: ConfigData) {
-    if (!configData.isFullscreen) return;
-    try {
-      const first = this.tabsConfig?.tabs?.[0];
-      if (first?.tabId) {
-        const tab = await chrome.tabs.get(first.tabId);
-        if (tab?.windowId != null) {
-          await chrome.windows.update(tab.windowId, {
-            state: 'fullscreen',
-            focused: !configData.preventWindowFocus,
-          });
-          if (!configData.preventWindowFocus) {
-            this.recordFocusAttempt('tryFullscreen', tab.windowId, true);
-          } else {
-            this.recordFocusAttempt('tryFullscreen', tab.windowId, false, 'suppressed-by-config');
-          }
-          this.windowId = tab.windowId;
-          console.info('[rotator] Entered fullscreen on window', this.windowId);
-          return;
-        }
+    await this.focusOrchestrator.tryFullscreen(
+      configData,
+      this.tabsConfig,
+      (winId) => {
+        this.windowId = winId;
       }
-      if (this.windowId != null) {
-        await chrome.windows.update(this.windowId, {
-          state: 'fullscreen',
-          focused: true,
-        });
-        this.recordFocusAttempt('tryFullscreen', this.windowId, true);
-        console.info(
-          '[rotator] Entered fullscreen on lastFocused window',
-          this.windowId
-        );
-      }
-    } catch (e) {
-      this.recordFocusAttempt('tryFullscreen', this.windowId ?? null, false, String(e));
-      console.warn(
-        '[rotator] Failed to enter fullscreen (policy/OS may block):',
-        e
-      );
-    }
-  }
-
-  private waitForTabToLoad(tabConfig: TabConfig): Promise<void> {
-    return new Promise(async (resolve) => {
-      let resolved = false;
-      const done = () => {
-        if (!resolved) {
-          resolved = true;
-          try {
-            chrome.tabs.onUpdated.removeListener(listener);
-          } catch {}
-          resolve();
-        }
-      };
-      const listener = (
-        updatedTabId: number,
-        changeInfo: chrome.tabs.OnUpdatedInfo
-      ) => {
-        if (
-          tabConfig &&
-          (updatedTabId === tabConfig.tabId ||
-            updatedTabId === tabConfig.nextTabId) &&
-          changeInfo.status === 'complete'
-        ) {
-          if (tabConfig.nextTabId === updatedTabId) {
-            tabConfig.nextTabIdReady = true;
-          } else {
-            tabConfig.tabIdReady = true;
-          }
-          console.log('[rotator] Initial loading complete', tabConfig);
-          done();
-        }
-      };
-      chrome.tabs.onUpdated.addListener(listener);
-
-      // Immediate check
-      try {
-        const id =
-          tabConfig.nextTabId > 0 ? tabConfig.nextTabId : tabConfig.tabId;
-        if (id) {
-          await chrome.tabs.get(id);
-          setTimeout(done, 250);
-        }
-      } catch {}
-
-      // Fallback timeout
-      setTimeout(done, 8000);
-    });
+    );
   }
 
   private async startRotationProcess(configData: ConfigData): Promise<void> {
     console.log('[rotator] Start rotation process');
     try {
-      await this.setRotationState(
-        true,
-        this.tabsConfig?.tabs.map((tab) => tab.tabId)
-      );
+      await this.stateFacade.set({
+        rotating: true,
+        tabIds: this.tabsConfig?.tabs.map((t) => t.tabId),
+        tabsConfig: this.tabsConfig,
+        currentIndex: this.currentIndex,
+        lastActivatedPageIndex: this.lastActivatedPageIndex,
+        lastActivatedTabId: this.lastActivatedTabId,
+        rotationCycle: this.rotationCycle,
+      });
       await this.rotateTabs();
     } catch (error) {
       console.error('[rotator] Failed to start rotation process:', error);
@@ -375,22 +384,36 @@ export class RotationService {
       await chrome.alarms.clear(RotationService.ALARM_ROTATE);
       await chrome.alarms.clear(RotationService.ALARM_CONFIG);
       await chrome.alarms.clear(RotationService.ALARM_WATCHDOG);
+      // Clear countdown via service & reset badge/storage
+      try {
+        this.countdown.stop();
+        chrome.action.setBadgeText({ text: '' });
+        chrome.storage.local.remove('__countdown');
+      } catch {}
 
-      if (this.tabsConfig?.tabs?.length) {
-        for (const t of this.tabsConfig.tabs) {
+      if (this.tabManager.tabsConfig?.tabs?.length) {
+        for (const t of this.tabManager.tabsConfig.tabs) {
           this.clearReloadAlarmForTab(t.tabId);
           this.clearReloadAlarmForTab(t.nextTabId);
         }
       }
 
-      await this.removeTabs(this.rotationState?.tabIds || []);
-      await this.setRotationState(false, []);
+      await this.tabManager.removeTabs(this.rotationState?.tabIds || []);
+      await this.stateFacade.set({
+        rotating: false,
+        tabIds: [],
+        tabsConfig: this.tabsConfig,
+        currentIndex: 0,
+        lastActivatedPageIndex: this.lastActivatedPageIndex,
+        lastActivatedTabId: this.lastActivatedTabId,
+        rotationCycle: this.rotationCycle,
+      });
       this.currentIndex = 0;
-      await this.persistCurrentIndex();
-      // Fully clear in-memory tab descriptors so diagnostics does not show stale allowedIds
-      this.tabsConfig = new TabsConfig();
+      await this.stateFacade.updateIndex(this.currentIndex);
+      this.tabManager.tabsConfig = new TabsConfig();
+      this.tabsConfig = this.tabManager.tabsConfig;
       // Reset timing expectations
-      this.nextRotationDueAt = null;
+      this.healthMonitor.clearSchedule();
     } catch (error) {
       console.error('[rotator] Failed to stop rotation:', error);
       throw error;
@@ -402,7 +425,7 @@ export class RotationService {
   async tryRemoveTabFromRotationOnClose(tabId: number): Promise<void> {
     if (this.stopping) return; // silence removal noise
 
-    const tabConfig = this.tabsConfig?.tabs?.find(
+    const tabConfig = this.tabManager.tabsConfig?.tabs?.find(
       (tab) => tab.tabId === tabId || tab.nextTabId === tabId
     );
     if (!tabConfig) return;
@@ -421,14 +444,19 @@ export class RotationService {
     if (!(tabConfig.tabId > 0 || tabConfig.nextTabId > 0)) {
       this.removeReloadTimer(tabConfig);
     }
-    await this.setRotationState(
-      this.isRotating,
-      this.rotationState.tabIds?.filter((id) => id !== tabId)
-    );
+    await this.stateFacade.set({
+      rotating: this.isRotating,
+      tabIds: this.rotationState.tabIds?.filter((id) => id !== tabId),
+      tabsConfig: this.tabsConfig,
+      currentIndex: this.currentIndex,
+      lastActivatedPageIndex: this.lastActivatedPageIndex,
+      lastActivatedTabId: this.lastActivatedTabId,
+      rotationCycle: this.rotationCycle,
+    });
   }
 
   async onPageLoaded(tabId: number, url: string): Promise<void> {
-    const tabConfig = this.tabsConfig?.tabs?.find(
+    const tabConfig = this.tabManager.tabsConfig?.tabs?.find(
       (tab) => tab.tabId === tabId || tab.nextTabId === tabId
     );
     if (!tabConfig || tabConfig.page.url !== url) return;
@@ -442,7 +470,7 @@ export class RotationService {
     }
 
     this.removeReloadTimer(tabConfig);
-    await this.enforceTabInvariant();
+    await this.enforceInvariant();
 
     if (tabConfig.page.reloadIntervalSeconds > 0) {
       const targetId =
@@ -452,7 +480,7 @@ export class RotationService {
   }
 
   async onHandleError(tabId: number, errorUrl: string): Promise<void> {
-    const tabConfig = this.tabsConfig?.tabs?.find(
+    const tabConfig = this.tabManager.tabsConfig?.tabs?.find(
       (tab) => tab.tabId === tabId || tab.nextTabId === tabId
     );
     if (!tabConfig || tabConfig.page.url !== errorUrl) return;
@@ -492,85 +520,57 @@ export class RotationService {
 
   public async onRotateAlarm(): Promise<void> {
     // Worker may have restarted; rebuild memory state & current index
-    await this.rebuildTabsFromState();
-    const stored = (
-      await chrome.storage.local.get(StorageKeys.RotationState)
-    )?.[StorageKeys.RotationState] as any;
+    await this.tryRebuildTabs();
+    const stored = await this.storage.get<any>(StorageKeys.RotationState);
     if (stored && typeof stored.currentIndex === 'number') {
       const len = this.tabsConfig?.tabs.length || 1;
       this.currentIndex = len > 0 ? stored.currentIndex % len : 0;
+    }
+    if (this.debugActivationLogging) {
+      console.debug('[rotator][alarm] rotate alarm fired', {
+        storedCurrentIndex: stored?.currentIndex,
+        inMemoryCurrentIndex: this.currentIndex,
+        tabCount: this.tabsConfig?.tabs?.length,
+      });
     }
     await this.rotateTabs();
   }
 
   public async onWatchdogAlarm(): Promise<void> {
-    if (!this.isRotating) return; // nothing to do
-    const now = Date.now();
-    let didHeal = false;
-    if (
-      this.nextRotationDueAt &&
-      now > this.nextRotationDueAt + this.watchdogGraceSeconds * 1000
-    ) {
-      const overdueSeconds = Math.round((now - this.nextRotationDueAt) / 1000);
-      console.warn(
-        '[rotator] Watchdog detected overdue rotation (overdue=%ds). Attempting self-heal.',
-        overdueSeconds
-      );
-      didHeal = true;
-      try {
-        // Rebuild state & enforce invariants immediately
-        await this.rebuildTabsFromState();
-        await this.enforceTabInvariant(true);
-        // If alarm somehow missing, create a near-immediate rotate
-        const rotateAlarm = await chrome.alarms.get(
-          RotationService.ALARM_ROTATE
-        );
-        if (!rotateAlarm) {
-          chrome.alarms.create(RotationService.ALARM_ROTATE, {
-            when: Date.now() + 1000,
-          });
-          console.info('[rotator] Watchdog scheduled immediate rotate alarm.');
-        } else {
-          // Force rotate directly (might have stuck due to missed alarm)
-          await this.rotateTabs();
-        }
-      } catch (e) {
-        console.error('[rotator] Watchdog self-heal failed', e);
-      }
-    }
-    // Even if not overdue, periodically prune extras (lightweight) once per watchdog tick
-    if (!didHeal) {
-      try {
-        await this.enforceTabInvariant();
-      } catch (e) {
-        console.debug('[rotator] Watchdog invariant check skipped', e);
-      }
-    }
+    await this.watchdogService.handleAlarm(this);
   }
 
   public async onConfigReloadAlarm(): Promise<void> {
     try {
-      const useRemote = (
-        await chrome.storage.local.get(StorageKeys.UseRemoteConfig)
-      )?.[StorageKeys.UseRemoteConfig] as boolean;
+      const useRemote = (await this.storage.get<boolean>(
+        StorageKeys.UseRemoteConfig
+      )) as boolean;
       if (!useRemote) return;
 
-      const rs = (await chrome.storage.local.get(StorageKeys.RemoteSettings))?.[
+      const rs = await this.storage.get<RemoteSettings>(
         StorageKeys.RemoteSettings
-      ] as RemoteSettings | undefined;
+      );
       if (!rs?.configUrl) return;
 
-      const remoteConfig = await this.loadRemoteConfig(rs.configUrl);
+      const remoteConfig = await this.configService.fetchRemoteConfig(
+        rs.configUrl
+      );
       if (remoteConfig && !isEqual(this.currentConfig, remoteConfig)) {
-        await chrome.storage.local.set({
-          [StorageKeys.RemoteConfig]: remoteConfig,
-        });
+        await this.storage.set({ [StorageKeys.RemoteConfig]: remoteConfig });
         console.info('[rotator] Remote config updated via alarm.');
 
         if (this.isRotating) {
           await this.stopRotation();
         }
-        await this.setRotationState(true);
+        await this.stateFacade.set({
+          rotating: true,
+          currentIndex: this.currentIndex,
+          tabsConfig: this.tabsConfig,
+          tabIds: this.rotationState.tabIds,
+          lastActivatedPageIndex: this.lastActivatedPageIndex,
+          lastActivatedTabId: this.lastActivatedTabId,
+          rotationCycle: this.rotationCycle,
+        });
         await this.createTabs(remoteConfig);
         await this.tryFullscreen(remoteConfig);
         await this.startRotationProcess(remoteConfig);
@@ -579,118 +579,53 @@ export class RotationService {
       console.error(
         '[rotator] onConfigReloadAlarm error:',
         e,
-        chrome.runtime.lastError
+        safeRuntimeLastError()
       );
     }
   }
 
   public async onReloadAlarm(tabId: number): Promise<void> {
-    await this.rebuildTabsFromState();
+    await this.tryRebuildTabs();
     const tabConfig = this.tabsConfig?.tabs?.find(
       (t) => t.tabId === tabId || t.nextTabId === tabId
     );
     if (!tabConfig) return;
     try {
-      if (tabConfig.nextTabId > 0) {
-        console.log('[rotator] Reloading next tab', tabConfig.nextTabId);
-        await chrome.tabs.reload(tabConfig.nextTabId);
-      } else {
-        console.log(
-          '[rotator] Creating fresh tab for page reload',
-          tabConfig.tabId
-        );
-        await this.createTab(tabConfig);
-        await this.setRotationState(this.rotationState.isRotating, [
-          ...this.rotationState.tabIds,
-          tabConfig.nextTabId > 0 ? tabConfig.nextTabId : tabConfig.tabId,
-        ]);
-        await this.enforceTabInvariant();
-      }
+      await this.tabLifecycle.handleReloadAlarm(
+        tabId,
+        this.tabsConfig,
+        async (tc: TabConfig) => {
+          await this.createTab(tc);
+        },
+        async (tabIds: number[]) => {
+          await this.stateFacade.set({
+            rotating: this.rotationState.isRotating,
+            tabIds,
+            tabsConfig: this.tabsConfig,
+            currentIndex: this.currentIndex,
+            lastActivatedPageIndex: this.lastActivatedPageIndex,
+            lastActivatedTabId: this.lastActivatedTabId,
+            rotationCycle: this.rotationCycle,
+          });
+        },
+        async () => {
+          await this.enforceInvariant();
+        }
+      );
     } catch (error) {
       console.error(
         '[rotator] Error in onReloadAlarm:',
         error,
-        chrome.runtime.lastError
+        safeRuntimeLastError()
       );
     }
   }
 
   private clearReloadAlarmForTab(tabId?: number) {
-    if (tabId && tabId > 0) {
-      chrome.alarms.clear(`reload:${tabId}`);
-    }
+    if (tabId && tabId > 0) this.scheduler.clearReload(tabId);
   }
-
   private scheduleReloadAlarm(tabId: number, seconds: number) {
-    if (!tabId || tabId <= 0) return;
-    chrome.alarms.create(`reload:${tabId}`, {
-      when: Date.now() + seconds * 1000,
-    });
-  }
-
-  private async setRotationState(
-    rotating: boolean,
-    tabIds?: number[]
-  ): Promise<void> {
-    console.log('[rotator] Set rotation state.', rotating, tabIds);
-    if (this.rotationState?.isRotating === rotating && !tabIds) {
-      return;
-    }
-    if (!this.rotationState) {
-      this.rotationState = new RotationState({ isRotating: rotating });
-    } else {
-      this.rotationState.isRotating = rotating;
-    }
-
-    if (tabIds) {
-      this.rotationState.tabIds = tabIds;
-    }
-
-    // Always normalize ordering when rotating and we have a tabsConfig so that
-    // the first N tracked IDs align with page indices. This ensures rebuildTabsFromState
-    // maps pages -> correct current tab even after swaps / reload preloading.
-    if (rotating && this.tabsConfig?.tabs?.length) {
-      const ordered: number[] = [];
-      // First pass: primary tab IDs in page order
-      for (const t of this.tabsConfig.tabs) {
-        if (t.tabId > 0) ordered.push(t.tabId);
-      }
-      // Second pass: any nextTabIds (preloaded) in the same page order
-      for (const t of this.tabsConfig.tabs) {
-        if (t.nextTabId > 0) ordered.push(t.nextTabId);
-      }
-      // Only replace if we actually built a sequence (avoid wiping state during early init)
-      if (ordered.length) {
-        this.rotationState.tabIds = ordered;
-      }
-    }
-
-    try {
-      await chrome.storage.local.set({
-        [StorageKeys.RotationState]: this.rotationState,
-      });
-      await this.toolbarManagerService.trySetToolbarIcon(rotating);
-    } catch (error) {
-      console.error('[rotator] Failed to set rotation state:', error);
-    }
-  }
-
-  private async persistCurrentIndex() {
-    try {
-      const current = (
-        await chrome.storage.local.get(StorageKeys.RotationState)
-      )?.[StorageKeys.RotationState] as any;
-      await chrome.storage.local.set({
-        [StorageKeys.RotationState]: {
-          ...(current ?? {}),
-          isRotating: this.rotationState.isRotating,
-          tabIds: this.rotationState.tabIds,
-          currentIndex: this.currentIndex,
-        },
-      });
-    } catch (e) {
-      console.error('[rotator] persistCurrentIndex failed', e);
-    }
+    this.tabLifecycle.scheduleReloadAlarm(tabId, seconds);
   }
 
   private async rotateTabs(): Promise<void> {
@@ -700,6 +635,16 @@ export class RotationService {
     }
     this.rotating = true;
     try {
+      let beforeActive: chrome.tabs.Tab | undefined;
+      try {
+        const winId = this.windowId;
+        const act = await chrome.tabs.query(
+          winId != null
+            ? { windowId: winId, active: true }
+            : { active: true, currentWindow: true }
+        );
+        beforeActive = act?.[0];
+      } catch {}
       // Defensive: validate rotation conditions
       if (!this.isRotating) {
         console.warn('[rotator] rotate called while not rotating — ignoring.');
@@ -708,7 +653,15 @@ export class RotationService {
       const tabCount = this.tabsConfig?.tabs?.length || 0;
       if (!this.tabsConfig || tabCount === 0) {
         console.warn('[rotator] No tabs configured yet.');
-        await this.setRotationState(false);
+        await this.stateFacade.set({
+          rotating: false,
+          currentIndex: this.currentIndex,
+          tabsConfig: this.tabsConfig,
+          tabIds: this.rotationState.tabIds,
+          lastActivatedPageIndex: this.lastActivatedPageIndex,
+          lastActivatedTabId: this.lastActivatedTabId,
+          rotationCycle: this.rotationCycle,
+        });
         return;
       }
       if (this.currentIndex < 0 || this.currentIndex >= tabCount) {
@@ -718,7 +671,7 @@ export class RotationService {
           tabCount
         );
         this.currentIndex = 0;
-        await this.persistCurrentIndex();
+        await this.stateFacade.updateIndex(this.currentIndex);
       }
 
       const currentTab = this.tabsConfig.tabs[this.currentIndex];
@@ -727,66 +680,196 @@ export class RotationService {
           '[rotator] No current tab (index=%d) — scheduling retry in 5s',
           this.currentIndex
         );
-        await chrome.alarms.clear(RotationService.ALARM_ROTATE);
-        chrome.alarms.create(RotationService.ALARM_ROTATE, {
-          when: Date.now() + 5000,
-        });
+        await this.scheduler.clear(RotationService.ALARM_ROTATE);
+        await this.scheduler.scheduleIn(RotationService.ALARM_ROTATE, 5000);
         return;
       }
-      console.debug(
-        '[rotator] Rotating to index=%d of %d (tabId=%d nextTabId=%d)',
-        this.currentIndex,
-        tabCount,
-        currentTab.tabId,
-        currentTab.nextTabId
-      );
+      // Lazy materialization: after MV3 service worker restart or tab closure we may have a placeholder with no tabId.
+      // Previous implementation never recreated these, causing perpetual activation failure at the same index.
+      if (!(currentTab.tabId > 0 || currentTab.nextTabId > 0)) {
+        try {
+          if (this.debugActivationLogging) {
+            console.debug(
+              '[rotator] Placeholder detected for index=%d – creating tab now.',
+              this.currentIndex
+            );
+          }
+          await this.createTab(currentTab);
+          // Wait briefly for load flag (non-blocking of whole rotation cycle but improves first activation reliability)
+          try {
+            await this.tabLifecycle.waitForInitialLoad(currentTab);
+          } catch {}
+          if (this.debugActivationLogging) {
+            console.debug('[rotator] Placeholder creation result', {
+              index: this.currentIndex,
+              tabId: currentTab.tabId,
+              nextTabId: currentTab.nextTabId,
+              ready: { p: currentTab.tabIdReady, n: currentTab.nextTabIdReady },
+            });
+          }
+        } catch (e) {
+          console.error(
+            '[rotator] Failed to create placeholder tab at index',
+            this.currentIndex,
+            e
+          );
+        }
+      }
+      if (this.debugActivationLogging) {
+        console.debug(
+          '[rotator] Rotating to index=%d of %d (tabId=%d nextTabId=%d)',
+          this.currentIndex,
+          tabCount,
+          currentTab.tabId,
+          currentTab.nextTabId
+        );
+      }
 
+      let activatedIndex: number | null = null;
       if (currentTab.nextTabId > 0 && currentTab.nextTabIdReady) {
         await this.openNextPageTab(currentTab);
+        activatedIndex = this.lastActivatedPageIndex;
       } else {
-        const targetId = currentTab.tabId > 0 ? currentTab.tabId : currentTab.nextTabId;
+        const targetId =
+          currentTab.tabId > 0 ? currentTab.tabId : currentTab.nextTabId;
         if (targetId > 0) {
-          try {
-            await chrome.tabs.update(targetId, { active: true });
-            await this.attemptFocus('rotateTabs', targetId);
-          } catch (error) {
-            console.error('[rotator] Error updating tab:', error);
+          const ok = await this.activationService.activateTabWithFallback(
+            targetId,
+            this.currentIndex,
+            'rotateTabs'
+          );
+          if (ok) {
+            activatedIndex = this.currentIndex;
           }
         }
+      }
+      try {
+        const winId2 = this.windowId;
+        const act2 = await chrome.tabs.query(
+          winId2 != null
+            ? { windowId: winId2, active: true }
+            : { active: true, currentWindow: true }
+        );
+        const afterActive = act2?.[0];
+        if (this.debugActivationLogging) {
+          console.debug('[rotator] Active tab before/after rotate', {
+            before: beforeActive
+              ? { id: beforeActive.id, url: beforeActive.url }
+              : null,
+            after: afterActive
+              ? { id: afterActive.id, url: afterActive.url }
+              : null,
+            expectedIndex: this.currentIndex,
+            lastActivatedPageIndex: this.lastActivatedPageIndex,
+            lastActivatedTabId: this.lastActivatedTabId,
+          });
+          this.debugSnapshot('post-rotate');
+        }
+      } catch {}
+
+      // If we failed to activate any tab (no valid target ID yet), don't advance index.
+      if (activatedIndex == null) {
+        if (this.debugActivationLogging) {
+          console.warn(
+            '[rotator] Activation skipped/failed for index=%d (tabId=%d nextTabId=%d ready=%s/%s). Retrying in 2s without advancing index.',
+            this.currentIndex,
+            currentTab?.tabId,
+            currentTab?.nextTabId,
+            currentTab?.tabIdReady,
+            currentTab?.nextTabIdReady
+          );
+        }
+        try {
+          await this.scheduler.clear(RotationService.ALARM_ROTATE);
+          await this.scheduler.scheduleIn(RotationService.ALARM_ROTATE, 2000);
+        } catch (e) {
+          console.error(
+            '[rotator] Failed to schedule retry after activation miss',
+            e
+          );
+        }
+        return; // ensure we do not call scheduleNextRotation() below
       }
       const delaySeconds = Math.max(
         1,
         Number(currentTab.page?.delaySeconds) || 1
       );
-      await this.scheduleNextRotation(delaySeconds);
+      const sched = await this.rotationScheduler.scheduleNext({
+        currentIndex: this.currentIndex,
+        tabCount,
+        delaySeconds,
+        tabsConfig: this.tabsConfig,
+      });
+      this.currentIndex = sched.nextIndex;
+      if (this.currentIndex === 0) this.rotationCycle++;
+      await this.stateFacade.updateIndex(this.currentIndex);
+      this.metrics.recordRotation({ index: this.currentIndex, delaySeconds });
+      // Delegate stall detection to StallGuardService
+      const postTabCount = this.tabsConfig?.tabs?.length || 0;
+      const rotateSnap = this.healthMonitor.snapshot();
+      const stallReset = this.stallGuard.evaluateRotation({
+        activatedIndex,
+        tabCount: postTabCount,
+        lastRotationAt: rotateSnap.lastRotationAt,
+        delaySeconds,
+        lastActivatedPageIndex: this.lastActivatedPageIndex,
+      });
+      if (stallReset) {
+        this.healthMonitor.adoptStallState({
+          stallCount: this.stallGuard.state.stallCount,
+          lastStallAt: this.stallGuard.state.lastStallAt,
+          lastStallReason: this.stallGuard.state.lastStallReason,
+        });
+        if (this.debugActivationLogging) {
+          console.warn(
+            '[rotator] Stall detected (delegated) — forcing realignment.'
+          );
+        }
+        const snap2 = this.healthMonitor.snapshot();
+        this.metrics.recordStall(snap2.lastStallReason || 'stuck');
+        this.currentIndex = 0;
+        await this.stateFacade.updateIndex(this.currentIndex);
+        await this.scheduler.clear(RotationService.ALARM_ROTATE);
+        await this.scheduler.scheduleIn(RotationService.ALARM_ROTATE, 1000);
+      }
       // Light periodic cleanup of stale tracked IDs (non-force respects grace window)
-      try { await this.enforceTabInvariant(); } catch {}
+      try {
+        await this.enforceInvariant();
+      } catch {}
     } finally {
       this.rotating = false;
     }
   }
 
-  private async scheduleNextRotation(delaySeconds: number): Promise<void> {
-    const tabCount = this.tabsConfig?.tabs?.length || 0;
-    if (tabCount === 0) {
-      console.warn(
-        '[rotator] scheduleNextRotation: no tabs; abort scheduling.'
-      );
-      return;
-    }
-    this.currentIndex = (this.currentIndex + 1) % tabCount;
-    await this.persistCurrentIndex();
-    await chrome.alarms.clear(RotationService.ALARM_ROTATE);
-    const when = Date.now() + Math.max(1, delaySeconds) * 1000;
-    chrome.alarms.create(RotationService.ALARM_ROTATE, { when });
-    this.lastRotationAt = Date.now();
-    this.nextRotationDueAt = when;
-    console.debug(
-      '[rotator] Scheduled next rotation index=%d in %ds (tabs=%d)',
-      this.currentIndex,
-      delaySeconds,
-      tabCount
-    );
+  /**
+   * Attempts to activate a tab robustly.
+   * 1. chrome.tabs.update({active:true})
+   * 2. Verify by querying active tab in the same window.
+   * 3. Fallback to chrome.tabs.highlight if still not active.
+   * 4. Retry once after a short delay.
+   * Returns true if activation confirmed, else false.
+   */
+
+  private debugSnapshot(tag: string) {
+    if (!this.debugActivationLogging) return;
+    try {
+      const pages =
+        this.tabsConfig?.tabs?.map((t, i) => ({
+          i,
+          tabId: t.tabId,
+          nextTabId: t.nextTabId,
+          ready: { p: t.tabIdReady, n: t.nextTabIdReady },
+          delay: t.page?.delaySeconds,
+          url: t.page?.url?.slice(0, 80),
+        })) || [];
+      console.debug('[rotator][snapshot]', tag, {
+        currentIndex: this.currentIndex,
+        lastActivatedPageIndex: this.lastActivatedPageIndex,
+        lastActivatedTabId: this.lastActivatedTabId,
+        rotationCycle: this.rotationCycle,
+        pages,
+      });
+    } catch {}
   }
 
   private async openNextPageTab(tabConfig: TabConfig): Promise<void> {
@@ -795,177 +878,93 @@ export class RotationService {
       return;
     }
     try {
+      console.debug(
+        '[rotator][openNext] activating nextTabId=%d (primary=%d ready=%s/%s)',
+        tabConfig.nextTabId,
+        tabConfig.tabId,
+        tabConfig.tabIdReady,
+        tabConfig.nextTabIdReady
+      );
       await chrome.tabs.update(tabConfig.nextTabId, { active: true });
       await this.attemptFocus('openNextPageTab', tabConfig.nextTabId);
       const tabIdToRemove = tabConfig.tabId;
       this.clearReloadAlarmForTab(tabIdToRemove);
-      await this.removeTabs([tabIdToRemove]);
-      await this.setRotationState(
-        this.isRotating,
-        this.rotationState.tabIds?.filter((id) => id !== tabIdToRemove)
-      );
+      await this.tabManager.removeTabs([tabIdToRemove]);
+      await this.stateFacade.set({
+        rotating: this.isRotating,
+        tabIds: this.rotationState.tabIds?.filter((id) => id !== tabIdToRemove),
+        tabsConfig: this.tabsConfig,
+        currentIndex: this.currentIndex,
+        lastActivatedPageIndex: this.lastActivatedPageIndex,
+        lastActivatedTabId: this.lastActivatedTabId,
+        rotationCycle: this.rotationCycle,
+      });
 
       tabConfig.tabId = tabConfig.nextTabId;
       tabConfig.nextTabId = 0;
       tabConfig.tabIdReady = true;
       tabConfig.nextTabIdReady = false;
       console.log('[rotator] Switched to next page tab', tabConfig.tabId);
+      console.debug('[rotator][openNext] post-switch state', {
+        idx: this.tabsConfig?.tabs.indexOf(tabConfig),
+        lastActivatedPageIndex: this.lastActivatedPageIndex,
+        lastActivatedTabId: this.lastActivatedTabId,
+      });
+      this.lastActivatedTabId = tabConfig.tabId;
+      // lastActivatedPageIndex remains the index of tabConfig within tabsConfig
+      if (this.tabsConfig?.tabs?.length) {
+        const idx = this.tabsConfig.tabs.indexOf(tabConfig);
+        if (idx >= 0) this.lastActivatedPageIndex = idx;
+      }
     } catch (error) {
       console.error('[rotator] Error in open next page tab:', error);
     }
   }
 
-  private async loadActualConfigurationFromLocalStorage(): Promise<{
-    loadedConfig: ConfigData;
-    loadedRemoteSettings?: RemoteSettings;
-  }> {
-    try {
-      console.log('[rotator] Loading configuration from local storage.');
-      const useRemoteConfigResult = await chrome.storage.local.get(
-        StorageKeys.UseRemoteConfig
-      );
-      const useRemoteConfig =
-        useRemoteConfigResult[StorageKeys.UseRemoteConfig] || false;
-
-      if (useRemoteConfig) {
-        const remoteSettingsResult = await chrome.storage.local.get(
-          StorageKeys.RemoteSettings
-        );
-        const remoteConfigResult = await chrome.storage.local.get(
-          StorageKeys.RemoteConfig
-        );
-        const loadedRemoteSettings = remoteSettingsResult[
-          StorageKeys.RemoteSettings
-        ] as RemoteSettings | undefined;
-        const loadedConfig =
-          (remoteConfigResult[StorageKeys.RemoteConfig] as
-            | ConfigData
-            | undefined) || new ConfigData();
-
-        this.currentConfig = loadedConfig;
-        return { loadedConfig, loadedRemoteSettings };
-      } else {
-        const localConfigResult = await chrome.storage.local.get(
-          StorageKeys.LocalConfig
-        );
-        const loadedConfig =
-          (localConfigResult[StorageKeys.LocalConfig] as
-            | ConfigData
-            | undefined) || new ConfigData();
-
-        this.currentConfig = loadedConfig;
-        return { loadedConfig };
-      }
-    } catch (error) {
-      console.error(
-        '[rotator] Failed to load configuration from local storage:',
-        error
-      );
-      // Return an empty config instead of throwing — first run support
-      return { loadedConfig: new ConfigData() };
-    }
-  }
-
-  private async ensureTabExists(tabId?: number): Promise<boolean> {
-    if (!tabId || tabId <= 0) return false;
-    try {
-      await chrome.tabs.get(tabId);
-      return true;
-    } catch {
-      return false;
-    }
-  }
+  // loadActualConfigurationFromLocalStorage now delegated to ConfigService.loadFromStorage
 
   private async createTab(tabConfig: TabConfig): Promise<TabConfig> {
-    if (!tabConfig?.page?.url) {
-      console.error('[rotator] Error creating tab, url not defined.');
-      return tabConfig;
-    }
-    if (this.creatingTabs.has(tabConfig)) {
-      console.info('[rotator] createTab skipped: already creating.');
-      return tabConfig;
-    }
-
-    if (
-      tabConfig.nextTabId > 0 &&
-      !(await this.ensureTabExists(tabConfig.nextTabId))
-    ) {
-      tabConfig.nextTabId = 0;
-      tabConfig.nextTabIdReady = false;
-    }
-    if (tabConfig.tabId > 0 && !(await this.ensureTabExists(tabConfig.tabId))) {
-      tabConfig.tabId = 0;
-      tabConfig.tabIdReady = false;
-    }
-
-    if (tabConfig.nextTabId > 0) {
-      console.log('[rotator] Next tab already set, not creating new one.');
-      return tabConfig;
-    }
-
-    try {
-      this.creatingTabs.add(tabConfig);
-
-      const tab = await chrome.tabs.create({
-        url: tabConfig.page.url,
-        active: tabConfig.active,
-        windowId: this.windowId,
-      });
-
-      if (tabConfig.tabId > 0) {
-        tabConfig.nextTabId = tab.id!;
-      } else {
-        tabConfig.tabId = tab.id!;
-        // Mark first created visible tab as ready to avoid initial gating
-        tabConfig.tabIdReady = true;
-      }
-
-      // Capture windowId from created tab if missing
-      if (this.windowId == null && tab.windowId != null) {
-        this.windowId = tab.windowId;
-      }
-
+    return this.tabLifecycle.createPrimaryTab(tabConfig, async (cfg) => {
       const ids = new Set<number>(this.rotationState.tabIds ?? []);
-      ids.add(tab.id!);
-      await this.setRotationState(this.rotationState.isRotating, [...ids]);
-    } catch (error) {
-      console.error('[rotator] Error creating tab', tabConfig.page.url, error);
-    } finally {
-      this.creatingTabs.delete(tabConfig);
-    }
-    return tabConfig;
+      if (cfg.tabId) ids.add(cfg.tabId);
+      if (cfg.nextTabId) ids.add(cfg.nextTabId);
+      await this.stateFacade.set({
+        rotating: this.rotationState.isRotating,
+        tabIds: [...ids],
+        tabsConfig: this.tabsConfig,
+        currentIndex: this.currentIndex,
+        lastActivatedPageIndex: this.lastActivatedPageIndex,
+        lastActivatedTabId: this.lastActivatedTabId,
+        rotationCycle: this.rotationCycle,
+      });
+      if (this.windowId == null && this.tabManager.window != null)
+        this.windowId = this.tabManager.window;
+    });
   }
 
   private async createTabs(configData: ConfigData): Promise<void> {
     console.log('[rotator] Creating tabs:', configData);
-    if (!configData?.pages || configData.pages.length === 0) return;
-
-    this.tabsConfig = new TabsConfig();
-    const tabPromises = configData.pages.map(async (page, index) => {
-      const tab = new TabConfig({ page, active: index === 0 });
-      const createdTab = await this.createTab(tab);
-      if (createdTab) {
-        this.tabsConfig?.tabs.push(createdTab);
-        await this.waitForTabToLoad(createdTab);
-      }
-      return createdTab;
-    });
-
-    await Promise.all(tabPromises);
-  }
-
-  private async removeTabs(tabIds: number[]): Promise<void> {
-    if (!tabIds?.length) return;
-    console.log('[rotator] Removing tabs:', tabIds);
-    try {
-      const existing: number[] = [];
-      for (const id of tabIds) {
-        if (await this.ensureTabExists(id)) existing.push(id);
-      }
-      await Promise.all(existing.map((tabId) => chrome.tabs.remove(tabId)));
-    } catch (error) {
-      console.error('[rotator] Failed to remove tabs:', error);
-    }
+    if (!configData?.pages?.length) return;
+    await this.tabManager.createTabs(
+      configData,
+      async (id: number) => {
+        const ids = new Set<number>(this.rotationState.tabIds ?? []);
+        ids.add(id);
+        await this.stateFacade.set({
+          rotating: this.rotationState.isRotating,
+          tabIds: [...ids],
+          tabsConfig: this.tabsConfig,
+          currentIndex: this.currentIndex,
+          lastActivatedPageIndex: this.lastActivatedPageIndex,
+          lastActivatedTabId: this.lastActivatedTabId,
+          rotationCycle: this.rotationCycle,
+        });
+      },
+      async (t: TabConfig) => await this.tabLifecycle.waitForInitialLoad(t)
+    );
+    this.tabsConfig = this.tabManager.tabsConfig;
+    if (this.windowId == null && this.tabManager.window != null)
+      this.windowId = this.tabManager.window;
   }
 
   private removeReloadTimer(tabConfig: TabConfig) {
@@ -975,217 +974,75 @@ export class RotationService {
     this.clearReloadAlarmForTab(targetId);
   }
 
-  private async loadRemoteConfig(url: string): Promise<ConfigData | undefined> {
-    console.log('[rotator] Loading remote configuration:', url);
-    try {
-      const configData = await this.http.get<ConfigData>(url);
-      this.configValidator.validateConfigData(configData);
-      return configData;
-    } catch (error) {
-      console.error('[rotator] Failed to load/validate configuration.', error);
-      return undefined;
-    }
-  }
-
-  private async enforceTabInvariant(force = false): Promise<void> {
-    if (!force && Date.now() < this.enforceResumeAt) return;
-    if (!this.tabsConfig?.tabs?.length) return;
-
-    const allowed = new Set<number>();
-    for (const t of this.tabsConfig.tabs) {
-      if (t.tabId > 0) allowed.add(t.tabId);
-      if (t.nextTabId > 0) allowed.add(t.nextTabId);
-    }
-
-    const maxAllowed =
-      this.tabsConfig.tabs.length * RotationService.MAX_TABS_PER_PAGE;
-    const current = [...new Set(this.rotationState.tabIds ?? [])];
-
-    const extras: number[] = [];
-    for (const id of current) {
-      if (!allowed.has(id)) extras.push(id);
-    }
-
-    const extrasExisting: number[] = [];
-    for (const id of extras) {
-      if (await this.ensureTabExists(id)) extrasExisting.push(id);
-    }
-
-    const remaining = current.filter((id) => !extrasExisting.includes(id));
-    if (remaining.length > maxAllowed) {
-      extrasExisting.push(...remaining.slice(maxAllowed));
-    }
-
-    if (extrasExisting.length) {
-      console.warn('[rotator] Anti-spam: removing extra tabs', extrasExisting);
-      await this.removeTabs(extrasExisting);
-    }
-
-    const newTracked: number[] = [];
-    for (const id of current) {
-      if (allowed.has(id)) {
-        newTracked.push(id);
-      } else if (!extrasExisting.includes(id)) {
-        const exists = await this.ensureTabExists(id);
-        if (exists) newTracked.push(id);
-      }
-    }
-    await this.setRotationState(this.isRotating, newTracked);
-  }
-
-  // --- Rebuild in-memory state from storage (on alarm wake) ---
-  private async rebuildTabsFromState(): Promise<void> {
-    if (this.tabsConfig && this.tabsConfig.tabs?.length) return; // already built
-
-    try {
-      const { loadedConfig } =
-        await this.loadActualConfigurationFromLocalStorage();
-      const tracked = [...new Set(this.rotationState.tabIds ?? [])];
-
-      const tabsConfig = new TabsConfig();
-      for (let i = 0; i < (loadedConfig.pages?.length ?? 0); i++) {
-        const page = loadedConfig.pages[i];
-        const cfg = new TabConfig({ page, active: i === 0 });
-        const id = tracked[i];
-        if (id) {
-          const exists = await this.ensureTabExists(id);
-          if (exists) {
-            cfg.tabId = id;
-            cfg.tabIdReady = true;
-            tabsConfig.tabs.push(cfg);
-            if (this.windowId == null) {
-              try {
-                const t = await chrome.tabs.get(id);
-                if (t?.windowId != null) this.windowId = t.windowId;
-              } catch {}
-            }
-            continue;
-          }
-        }
-        // If missing, we can recreate lazily later. Push placeholder so indices align.
-        tabsConfig.tabs.push(cfg);
-      }
-
-      this.tabsConfig = tabsConfig;
-      // Small grace to avoid anti-spam cutting recreated tabs
-      this.enforceResumeAt = Math.max(this.enforceResumeAt, Date.now() + 5000);
-    } catch (e) {
-      console.warn('[rotator] rebuildTabsFromState failed:', e);
-    }
-  }
-
   // Diagnostics
   public async getDiagnostics(): Promise<any> {
-    const manifest = chrome.runtime.getManifest();
-    const alarms = await chrome.alarms.getAll();
-    let wndId = this.windowId;
-    try {
-      const wnd = await chrome.windows.getLastFocused();
-      wndId = wnd?.id ?? wndId;
-    } catch {}
-    let tabs = [] as chrome.tabs.Tab[];
-    try {
-      tabs = await chrome.tabs.query(wndId ? { windowId: wndId } : {});
-    } catch {}
-
-    const allowed = new Set<number>();
-    if (this.isRotating && this.tabsConfig?.tabs?.length) {
-      for (const t of this.tabsConfig.tabs) {
-        if (t.tabId > 0) allowed.add(t.tabId);
-        if (t.nextTabId > 0) allowed.add(t.nextTabId);
-      }
-    }
-
-    const tracked = [...new Set(this.rotationState.tabIds ?? [])];
-    const extras = tracked.filter((id) => !allowed.has(id));
-
-    return {
-      version: manifest.version,
+    const healthSnap = this.healthMonitor.snapshot();
+    const compositeBadgeColor = this.healthMonitor.computeCompositeBadgeColor();
+    return this.diagnosticsService.assembleDiagnostics({
+      tabs: this.tabsConfig?.tabs,
       isRotating: this.isRotating,
       currentIndex: this.currentIndex,
-      pagesConfigured: this.tabsConfig?.tabs?.length ?? 0,
-      lastRotationAt: this.isRotating ? this.lastRotationAt : null,
-      nextRotationDueAt: this.isRotating ? this.nextRotationDueAt : null,
-      lastRotationAgeSeconds: this.isRotating && this.lastRotationAt
-        ? Math.round((Date.now() - this.lastRotationAt) / 1000)
-        : null,
-      lastFocusAttemptAt: this.lastFocusAttemptAt,
-      lastFocusAttemptSource: this.lastFocusAttemptSource,
-      lastFocusAttemptWindowId: this.lastFocusAttemptWindowId,
-      lastFocusAttemptSucceeded: this.lastFocusAttemptSucceeded,
-      lastFocusAttemptError: this.lastFocusAttemptError,
-      trackedTabIds: tracked,
-      allowedIds: [...allowed],
-      extraTrackedIds: extras,
-      windowId: wndId ?? null,
-      windowTabCount: tabs.length,
-      windowTabsPreview: tabs.slice(0, 15).map((t) => ({
-        id: t.id,
-        title: t.title,
-        url: t.url,
-        discarded: t.discarded,
-      })),
-      alarms: alarms.map((a) => ({
-        name: a.name,
-        scheduledTime: a.scheduledTime,
-        periodInMinutes: a.periodInMinutes,
-      })),
+      rotation: {
+        lastRotationAt: healthSnap.lastRotationAt,
+        nextRotationDueAt: healthSnap.nextRotationDueAt,
+        lastActivatedTabId: this.lastActivatedTabId,
+        lastActivatedPageIndex: this.lastActivatedPageIndex,
+        rotationCycle: this.rotationCycle,
+        stallCount: healthSnap.stallCount,
+        lastStallAt: healthSnap.lastStallAt,
+        lastStallReason: healthSnap.lastStallReason,
+        severity: healthSnap.severity,
+        badgeColor: compositeBadgeColor,
+      },
+      focus: this.focusOrchestrator.lastAttempt,
+      rotationStateTabIds: this.rotationState.tabIds ?? [],
+      windowId: this.windowId,
       enforceResumeAt: this.enforceResumeAt,
-      now: Date.now(),
-    };
+      // Provide activation error as a counter & will also be surfaced explicitly below
+      metricsCounters: this.activationDiagnostics.getLastError()
+        ? { lastActivationError: 1 }
+        : undefined,
+      activationHistory: this.activationDiagnostics.getHistory(),
+      lastActivationSuccessAt: this.activationDiagnostics.getLastSuccessAt(),
+    });
+  }
+
+  // Exposed for background message handlers
+  public async clearActivationHistory() {
+    await this.activationDiagnostics.clearHistory();
+  }
+  public clearActivationError() {
+    this.activationDiagnostics.clearError();
   }
 
   // --- Focus helpers & diagnostics ---
-  private recordFocusAttempt(source: string, windowId: number | null, success: boolean, error?: string) {
-    this.lastFocusAttemptAt = Date.now();
-    this.lastFocusAttemptSource = source;
-    this.lastFocusAttemptWindowId = windowId;
-    this.lastFocusAttemptSucceeded = success;
-    this.lastFocusAttemptError = error ?? null;
-  }
-
-  private async attemptFocus(source: 'rotateTabs' | 'openNextPageTab', tabId: number): Promise<void> {
-    if (this.currentConfig?.preventWindowFocus) {
-      this.recordFocusAttempt(source, this.windowId ?? null, false, 'suppressed-by-config');
-      return;
-    }
-    try {
-      if (this.windowId == null) {
-        try {
-          const tab = await chrome.tabs.get(tabId);
-          if (tab?.windowId != null) this.windowId = tab.windowId;
-        } catch (e) {
-          // swallow; may fail if tab closed
-        }
-      }
-      if (this.windowId != null) {
-        try {
-          await chrome.windows.update(this.windowId, { focused: true });
-          this.recordFocusAttempt(source, this.windowId, true);
-        } catch (focusErr) {
-          this.recordFocusAttempt(source, this.windowId, false, String(focusErr));
-        }
-      } else {
-        this.recordFocusAttempt(source, null, false, 'no-window-id');
-      }
-    } catch (outer) {
-      this.recordFocusAttempt(source, this.windowId ?? null, false, String(outer));
-    }
+  private async attemptFocus(
+    source: 'rotateTabs' | 'openNextPageTab',
+    tabId: number
+  ): Promise<void> {
+    await this.focusOrchestrator.attemptTabFocus(source, tabId, (win) => {
+      if (this.windowId == null) this.windowId = win;
+    });
   }
 
   public async enforceNow(): Promise<any> {
-    await this.enforceTabInvariant(true);
+    await this.enforceInvariant(true);
     return this.getDiagnostics();
   }
 
   // Force an immediate rotation attempt (used by diagnostics panel)
   public async forceRotateNow(): Promise<any> {
     if (!this.isRotating) {
-      console.warn('[rotator] forceRotateNow called while not rotating. Attempting initialize.');
+      console.warn(
+        '[rotator] forceRotateNow called while not rotating. Attempting initialize.'
+      );
       try {
         await this.initialize();
       } catch (e) {
-        console.error('[rotator] Failed to initialize during forceRotateNow', e);
+        console.error(
+          '[rotator] Failed to initialize during forceRotateNow',
+          e
+        );
         return { ok: false, error: String(e) };
       }
     } else {
@@ -1201,6 +1058,58 @@ export class RotationService {
       return { ok: true, diagnostics: diags };
     } catch (e) {
       return { ok: false, error: String(e) };
+    }
+  }
+  /**
+   * Rebuilds in-memory tabsConfig after a service worker restart if it is not yet populated.
+   * Idempotent: returns quickly when a valid tabsConfig already exists.
+   */
+  private async tryRebuildTabs(): Promise<void> {
+    try {
+      const result = await this.invariantRebuilder.rebuildTabsFromState({
+        rotationTrackedIds: this.rotationState.tabIds,
+        existingTabsConfig: this.tabsConfig,
+        currentWindowId: this.windowId,
+      });
+      if (result) {
+        this.tabsConfig = result.tabsConfig;
+        this.windowId = result.windowId ?? this.windowId;
+        this.enforceResumeAt = Math.max(
+          this.enforceResumeAt,
+          result.enforceResumeAt
+        );
+        this.currentConfig = result.loadedConfig;
+        this.focusService.setConfig(this.currentConfig);
+      }
+    } catch (e) {
+      console.warn('[rotator] tryRebuildTabs failed:', e);
+    }
+  }
+  /**
+   * Ensures tab invariants (tracked IDs alignment, pruning, ordering). When force=true
+   * skips grace period checks and performs an immediate full enforcement.
+   */
+  private async enforceInvariant(force = false) {
+    try {
+      const updated = await this.invariantRebuilder.enforceInvariant({
+        force,
+        resumeAt: this.enforceResumeAt,
+        trackedIds: this.rotationState.tabIds ?? [],
+        tabManager: this.tabManager,
+        tabsConfig: this.tabsConfig,
+      });
+      await this.stateFacade.set({
+        rotating: this.isRotating,
+        tabIds: updated,
+        tabsConfig: this.tabsConfig,
+        currentIndex: this.currentIndex,
+        lastActivatedPageIndex: this.lastActivatedPageIndex,
+        lastActivatedTabId: this.lastActivatedTabId,
+        rotationCycle: this.rotationCycle,
+      });
+    } catch (e) {
+      if (this.debugActivationLogging)
+        console.debug('[rotator] enforceInvariant skipped', e);
     }
   }
 }

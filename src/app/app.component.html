@@ -89,4 +89,8 @@
     *ngIf="showDiagnostics"
     class="mt-2"
   ></app-diagnostics-panel>
+
+  <div *ngIf="secondsToNext !== undefined" class="text-sm text-secondary-700 mt-2">
+    Next rotation in: <span class="font-mono">{{ secondsToNext }}s</span>
+  </div>
 </div>

@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist/background",
+    "types": ["chrome-types"]
+  },
+  "include": [
+    "src/background/**/*.ts",
+    "src/types/**/*.d.ts"
+  ]
+}

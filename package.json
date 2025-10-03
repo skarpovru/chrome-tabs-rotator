@@ -4,7 +4,9 @@
   "scripts": {
     "prebuild": "node scripts/build-tailwind.mjs",
     "start": "ng build --watch --configuration development",
-    "build": "ng build && node scripts/zip.js"
+    "build": "ng build && node scripts/zip.js",
+    "harness": "tsc -p tsconfig.harness.json && node dist/harness/scripts/tab-manager-harness.js",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.background.json --noEmit && tsc -p tsconfig.harness.json --noEmit"
   },
   "private": true,
   "dependencies": {
@@ -31,7 +33,7 @@
     "@angular/cli": "20.2.1",
     "@angular/compiler-cli": "20.2.3",
     "@tailwindcss/forms": "0.5.10",
-    "@types/chrome": "0.1.4",
+    "chrome-types": "^0.1.283",
     "@types/file-saver": "2.0.7",
     "@types/jasmine": "5.1.9",
     "@types/lodash": "4.17.20",

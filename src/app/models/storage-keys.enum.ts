@@ -8,4 +8,6 @@ export enum StorageKeys {
   RemoteSettings = 'remoteSettings',
   RemoteConfig = 'remoteConfig',
   RotationState = 'rotationState',
+  DebugActivationLogging = 'debugActivationLogging',
+  ActivationHistory = 'activationHistory',
 }

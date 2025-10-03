@@ -4,30 +4,33 @@ import {
   ChangeDetectorRef,
   Component,
   OnInit,
+  OnDestroy,
 } from '@angular/core';
 import { ConfigEditorComponent } from './config-editor/config-editor.component';
 import { ConfigLoaderComponent } from './config-loader/config-loader.component';
 import { DiagnosticsPanelComponent } from './diagnostics-panel/diagnostics-panel.component';
 import { ConfigData, RemoteSettings, StorageKeys } from './models';
 import { ConfigLoaderService } from './services/config-loader.service';
+import { CountdownStateService } from './services/countdown-state.service';
 import { FontAwesomeModule } from '@fortawesome/angular-fontawesome';
 import { faWrench } from '@fortawesome/free-solid-svg-icons';
 
 @Component({
-    selector: 'app-root',
-    templateUrl: './app.component.html',
-    changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [
-        CommonModule,
-        ConfigEditorComponent,
-        ConfigLoaderComponent,
-        DiagnosticsPanelComponent,
-        FontAwesomeModule
-    ]
+  selector: 'app-root',
+  templateUrl: './app.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    CommonModule,
+    ConfigEditorComponent,
+    ConfigLoaderComponent,
+    DiagnosticsPanelComponent,
+    FontAwesomeModule,
+  ],
 })
-export class AppComponent implements OnInit {
+export class AppComponent implements OnInit, OnDestroy {
   faWrench = faWrench;
   isRotating = false;
+  secondsToNext?: number;
   localConfig?: ConfigData;
   remoteSettings?: RemoteSettings;
   useRemoteConfig: boolean = false;
@@ -37,9 +40,12 @@ export class AppComponent implements OnInit {
   // Diagnostics
   showDiagnostics = false;
 
+  private countdownSub?: any;
+
   constructor(
     private cdr: ChangeDetectorRef,
-    private configLoaderService: ConfigLoaderService
+    private configLoaderService: ConfigLoaderService,
+    private countdownState: CountdownStateService
   ) {}
 
   ngOnInit() {
@@ -50,6 +56,17 @@ export class AppComponent implements OnInit {
       this.allowFileSchemeAccessMessage = !isAllowed;
       this.cdr.detectChanges();
     });
+
+    // Handshake to inform background that UI is active for gated emissions
+    try { chrome.runtime.sendMessage({ action: 'uiHello' }); } catch {}
+
+  // Countdown provided by CountdownStateService (storage-backed)
+    this.countdownSub = this.countdownState.state$.subscribe((state) => {
+      if (state) {
+        this.secondsToNext = state.seconds;
+        this.cdr.markForCheck();
+      }
+    });
   }
 
   startRotation() {
@@ -57,7 +74,7 @@ export class AppComponent implements OnInit {
       return;
     }
     this.isRotationDisabled = true;
-    chrome.runtime.sendMessage({ action: 'rotateTabs' }).finally(() => {
+    chrome.runtime.sendMessage({ action: 'rotateTabs' }, undefined, () => {
       this.isRotating = true;
       this.isRotationDisabled = false;
       this.cdr.detectChanges();
@@ -69,7 +86,7 @@ export class AppComponent implements OnInit {
       return;
     }
     this.isRotationDisabled = true;
-    chrome.runtime.sendMessage({ action: 'stopRotation' }).finally(() => {
+    chrome.runtime.sendMessage({ action: 'stopRotation' }, undefined, () => {
       this.isRotating = false;
       this.isRotationDisabled = false;
       this.cdr.detectChanges();
@@ -187,9 +204,20 @@ export class AppComponent implements OnInit {
   }
 
   private queryRotationState() {
-    chrome.runtime.sendMessage({ action: 'getRotationState' }, (response) => {
-      this.isRotating = response.isRotating;
-      this.cdr.detectChanges();
-    });
+    chrome.runtime.sendMessage(
+      { action: 'getRotationState' },
+      undefined,
+      (response: any) => {
+        this.isRotating = !!response?.isRotating;
+        this.cdr.detectChanges();
+      }
+    );
   }
+
+  ngOnDestroy(): void {
+    try {
+      this.countdownSub?.unsubscribe();
+    } catch {}
+  }
+
 }

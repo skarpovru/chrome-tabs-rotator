@@ -11,7 +11,15 @@ export class TabManagerService {
   private creatingTabs = new WeakSet<TabConfig>();
   private static readonly MAX_TABS_PER_PAGE = 2;
   private windowId?: number;
+  /** Set of tab IDs explicitly created by the extension (ownership used to avoid closing user tabs). */
+  private ownedTabIds = new Set<number>();
   constructor(private metrics?: MetricsService) {}
+
+  /** Marks a collection of tab IDs as owned (used after browser restart to adopt surviving rotation tabs). */
+  adoptOwnership(ids: number[] | undefined) {
+    if (!ids) return;
+    for (const id of ids) if (id && id > 0) this.ownedTabIds.add(id);
+  }
 
   get window(): number | undefined { return this.windowId; }
   set window(id: number | undefined) { this.windowId = id; }
@@ -40,6 +48,7 @@ export class TabManagerService {
       if (tabConfig.tabId > 0) { tabConfig.nextTabId = tab.id!; } else { tabConfig.tabId = tab.id!; tabConfig.tabIdReady = true; }
       if (this.windowId == null && tab.windowId != null) this.windowId = tab.windowId;
       await track(tab.id!);
+      if (tab.id != null) this.ownedTabIds.add(tab.id);
       try { this.metrics?.recordTabCreation(tabConfig.page.url); } catch {}
       console.debug('[tab-manager] createTab created', { assignedPrimary: tabConfig.tabId, assignedPreload: tabConfig.nextTabId, windowId: this.windowId });
     } finally { this.creatingTabs.delete(tabConfig); }
@@ -68,9 +77,14 @@ export class TabManagerService {
 
   async removeTabs(tabIds: number[]): Promise<void> {
     if (!tabIds?.length) return;
-    const existing: number[] = [];
-    for (const id of tabIds) if (await this.ensureTabExists(id)) existing.push(id);
-    await Promise.all(existing.map(id => chrome.tabs.remove(id)));
+    const toRemove: number[] = [];
+    for (const id of tabIds) {
+      if (!this.ownedTabIds.has(id)) continue; // never remove tabs we did not create
+      if (await this.ensureTabExists(id)) toRemove.push(id);
+    }
+    if (toRemove.length) {
+      await Promise.all(toRemove.map(id => chrome.tabs.remove(id)));
+    }
   }
 
   /**
@@ -96,13 +110,13 @@ export class TabManagerService {
     for (const id of uniqueTracked) if (!allowed.has(id)) extras.push(id);
 
     const extrasExisting: number[] = [];
-    for (const id of extras) if (await this.ensureTabExists(id)) extrasExisting.push(id);
+  for (const id of extras) if (this.ownedTabIds.has(id) && (await this.ensureTabExists(id))) extrasExisting.push(id);
 
     const remaining = uniqueTracked.filter(id => !extrasExisting.includes(id));
     if (remaining.length > maxAllowed) extrasExisting.push(...remaining.slice(maxAllowed));
 
     if (extrasExisting.length) {
-      console.warn('[tab-manager] Anti-spam: removing extra tabs', extrasExisting);
+      console.warn('[tab-manager] Anti-spam: removing extra owned tabs', extrasExisting);
       await this.removeTabs(extrasExisting);
     }
 

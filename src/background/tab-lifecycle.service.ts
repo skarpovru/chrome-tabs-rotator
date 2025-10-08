@@ -57,11 +57,16 @@ export class TabLifecycleService {
     const tabConfig = tabsConfig?.tabs?.find(t => t.tabId === tabId || t.nextTabId === tabId);
     if (!tabConfig) return;
     try {
-      if (tabConfig.nextTabId > 0) {
-        console.log('[tabLifecycle] Reloading next tab', tabConfig.nextTabId);
-        await chrome.tabs.reload(tabConfig.nextTabId);
+      // Previous behaviour: if only primary existed we created a brand new tab on each reload alarm
+      // (assigning it as primary or preload) which could lead to continual tab spawning if loads were slow.
+      // New behaviour: prefer to reload whichever concrete tab currently represents the page; only create
+      // a new tab if neither primary nor preload exists (both IDs missing) which is a legitimate recovery scenario.
+      const targetReloadId = tabConfig.nextTabId > 0 ? tabConfig.nextTabId : tabConfig.tabId;
+      if (targetReloadId > 0) {
+        console.log('[tabLifecycle] Reloading tab', targetReloadId);
+        await chrome.tabs.reload(targetReloadId);
       } else {
-        console.log('[tabLifecycle] Creating fresh tab for page reload', tabConfig.tabId);
+        console.log('[tabLifecycle] Recovering missing tab before reload for page', tabConfig.page?.url);
         await createCb(tabConfig);
         await setStateCb([
           ...(tabsConfig?.tabs?.flatMap(t => [t.tabId, t.nextTabId]).filter(id => id && id > 0) as number[])

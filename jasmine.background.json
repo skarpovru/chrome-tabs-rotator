@@ -1,0 +1,9 @@
+{
+  "spec_dir": "out-tsc/background-spec/background/__tests__",
+  "spec_files": ["**/*.spec.js"],
+  "helpers": [],
+  "env": {
+    "stopSpecOnExpectationFailure": false,
+    "random": false
+  }
+}

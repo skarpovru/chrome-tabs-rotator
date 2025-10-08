@@ -233,6 +233,58 @@ Requirements: **Node.js ≥ 18**, **npm** and **yarn**.
 
 > Tip: If you change background or options code, the service worker may need a manual reload in `chrome://extensions/` during development.
 
+### Test Suite Overview (UI + Background)
+
+Two layers:
+
+1. **Background (Node + Jasmine)** – rotation & tab logic.
+2. **Angular UI (Karma + Jasmine)** – component/service specs.
+
+#### Background Tests
+
+```powershell
+yarn test:bg
+```
+
+Watch:
+
+```powershell
+yarn test:bg:watch
+```
+
+#### UI Tests
+
+```powershell
+yarn test:ui
+```
+
+Watch:
+
+```powershell
+yarn test:ui:watch
+```
+
+#### Combined
+
+```powershell
+yarn test:all
+```
+
+Watch both:
+
+```powershell
+yarn test:all:watch
+```
+
+Troubleshooting:
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| No specs found (bg) | Not compiled / wrong dir | yarn test:bg:build then re-run |
+| UI hang | Headless Chrome missing | Adjust script or install Chrome |
+| chrome types leak | Background file imported into UI | Move shared models to src/app/models |
+| Stale bg code | Forgot rebuild | Use yarn test:bg or watch |
+
 ### TypeScript Project Layout (Multi-Config)
 
 The repository uses a _multi-tsconfig_ layout to isolate concerns and remove accidental Chrome ambient types from Node / test contexts:

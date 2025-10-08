@@ -29,3 +29,11 @@
 - Added "Force rotate" button in Diagnostics panel
 - Added manual focus control logic to fullscreen start
 - Debug activation logging toggle + buttons to clear activation error & history
+
+## [1.5] - 2025-10-08
+
+- Fix: Extension could appear "started" after browser restart but no tabs/fullscreen until manual stop/start. Startup recovery now signals when a full reinitialization is required and auto-initializes.
+- Fix: Rare runaway tab creation on reload alarms (continuous new tabs) caused by creating a fresh tab instead of reloading existing when only primary tab present. Reload alarm now reloads existing tab and only creates when both IDs missing.
+- Diagnostics: Added debug log when auto reinitialization triggers after recovery.
+- Improvement: Restart rebuild now matches surviving tabs by URL.
+- Safety: Anti-spam / invariant enforcement only closes tabs explicitly created by the extension.

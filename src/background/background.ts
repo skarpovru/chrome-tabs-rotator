@@ -67,13 +67,13 @@ try {
 } catch {}
 
 // Re-arm on install/start
-chrome.runtime.onInstalled.addListener(() =>
-  rotationService.rescheduleIfNeeded()
-);
+chrome.runtime.onInstalled.addListener(() => {
+  rotationService.rescheduleIfNeeded();
+});
 
-chrome.runtime.onStartup.addListener(() =>
-  rotationService.rescheduleIfNeeded()
-);
+chrome.runtime.onStartup.addListener(() => {
+  rotationService.rescheduleIfNeeded();
+});
 
 // Alarms dispatcher
 chrome.alarms.onAlarm.addListener((alarm) => {

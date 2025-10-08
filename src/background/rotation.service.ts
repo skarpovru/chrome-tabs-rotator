@@ -161,6 +161,13 @@ export class RotationService {
           this.currentIndex = r.currentIndex;
         if (typeof (r as any)?.debugActivationLogging === 'boolean')
           this.debugActivationLogging = (r as any).debugActivationLogging;
+        // Adopt ownership of previously tracked tabs so we never close user tabs accidentally if they still exist.
+        try { this.tabManager.adoptOwnership(this.rotationState.tabIds); } catch {}
+        // If state says we were rotating but no tabsConfig is built yet, rely on normal initialize to recreate.
+        if (this.rotationState.isRotating && (!this.tabsConfig || !this.tabsConfig.tabs.length)) {
+          // Schedule async initialize (don't block constructor) so config-driven creation runs through standard path.
+          Promise.resolve().then(()=> this.initialize().catch(e=> console.warn('[rotator] auto-initialize after restore failed', e)));
+        }
       })
       .catch((e) =>
         console.warn('[rotator] startupRecovery.restore failed', e)
@@ -201,9 +208,13 @@ export class RotationService {
 
   // rescheduleIfNeeded now handled by StartupRecoveryService.rescheduleIfNeeded
   public async rescheduleIfNeeded(): Promise<void> {
-    await this.startupRecovery?.rescheduleIfNeeded(this.rotationState, {
+    const result = await this.startupRecovery?.rescheduleIfNeeded(this.rotationState, {
       value: this.currentIndex,
     });
+    if (result?.reinitNeeded) {
+      if (this.debugActivationLogging) console.debug('[rotator] reschedule indicates missing tabs — reinitializing.');
+      try { await this.initialize(); } catch (e) { console.error('[rotator] auto-initialize after reschedule failed', e); }
+    }
   }
 
   async initialize(): Promise<void> {
@@ -266,6 +277,8 @@ export class RotationService {
           rotationCycle: this.rotationCycle,
         });
         await this.createTabs(config);
+        // Remove any session-restored duplicate tabs matching rotation pages that are not part of current tracking set.
+        await this.prunePreexistingRotationTabs(config);
         await this.tryFullscreen(config);
         await this.startRotationProcess(config);
       };
@@ -965,6 +978,44 @@ export class RotationService {
     this.tabsConfig = this.tabManager.tabsConfig;
     if (this.windowId == null && this.tabManager.window != null)
       this.windowId = this.tabManager.window;
+  }
+
+  /**
+   * After a full browser (or OS) restart Chrome may session-restore previously active tabs
+   * (including one that belonged to the prior rotation cycle). Our rotation cycle should start
+   * from a clean slate of newly created tabs so delays and reload timers are aligned.
+   * This method scans currently open tabs; if a tab URL matches any configured rotation page URL
+   * BUT its ID is not part of the tracked ownership (tabManager.tabsConfig or rotationState.tabIds)
+   * we treat it as a session-restored duplicate and remove it.
+   */
+  private async prunePreexistingRotationTabs(config: ConfigData): Promise<void> {
+    try {
+      if (!config?.pages?.length) return;
+      const pageUrls = new Set<string>(config.pages.map(p => p.url).filter(Boolean));
+      if (!pageUrls.size) return;
+      const trackedIds = new Set<number>();
+      try {
+        // Only consider tabs just created in this initialize cycle; ignore previously persisted IDs.
+        for (const t of this.tabManager.tabsConfig?.tabs || []) {
+          if (t.tabId > 0) trackedIds.add(t.tabId);
+          if (t.nextTabId > 0) trackedIds.add(t.nextTabId);
+        }
+      } catch {}
+      const existing = await chrome.tabs.query({});
+      const toRemove: number[] = [];
+      for (const t of existing) {
+        if (!t || !t.id || !t.url) continue;
+        if (pageUrls.has(t.url) && !trackedIds.has(t.id)) {
+          toRemove.push(t.id);
+        }
+      }
+      if (toRemove.length) {
+        console.debug('[rotator] Pruning session-restored rotation tabs', toRemove);
+        try { await chrome.tabs.remove(toRemove); } catch (e) { console.warn('[rotator] prune removal failed', e); }
+      }
+    } catch (e) {
+      console.warn('[rotator] prunePreexistingRotationTabs failed', e);
+    }
   }
 
   private removeReloadTimer(tabConfig: TabConfig) {

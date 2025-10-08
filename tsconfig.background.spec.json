@@ -1,8 +1,9 @@
 {
-  "extends": "./tsconfig.base.json",
+  "extends": "./tsconfig.background.json",
   "compilerOptions": {
-    "outDir": "./dist/background",
-    "types": ["chrome-types", "jasmine"]
+    "outDir": "./out-tsc/background-spec",
+    "module": "CommonJS",
+    "moduleResolution": "node"
   },
   "include": [
     "src/background/**/*.ts",

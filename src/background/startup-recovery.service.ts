@@ -31,7 +31,7 @@ export class StartupRecoveryService {
     private activationDiagnostics: ActivationDiagnosticsService
   ) {}
 
-  /** Restores rotation state and attempts in-memory rebuild (idempotent). */
+  /** Restores persisted rotation state (no tab reconstruction; fresh initialize handles tab creation). */
   public async restore(windowIdRef: { windowId?: number }): Promise<RestoreResult> {
     console.log('[startup] Restore previous rotation state.');
     const { state: storedState, currentIndex } = await this.rotationRepo.load();
@@ -46,28 +46,13 @@ export class StartupRecoveryService {
     } catch {}
     const rotationState = storedState || new RotationState();
     const idx = Number(currentIndex ?? 0);
-    try {
-      await this.invariantRebuilder.rebuildTabsFromState({
-        rotationTrackedIds: rotationState.tabIds,
-        existingTabsConfig: this.tabManager.tabsConfig,
-        currentWindowId: windowIdRef.windowId,
-      }).then(result => {
-        if (result) {
-          this.tabManager.tabsConfig = result.tabsConfig;
-          windowIdRef.windowId = result.windowId ?? windowIdRef.windowId;
-          this.focusService.setConfig(result.loadedConfig);
-        }
-      });
-    } catch (e) {
-      console.warn('[startup] Rebuild during restore failed', e);
-    }
     return { rotationState, currentIndex: idx, debugActivationLogging: debugFlag, windowId: windowIdRef.windowId };
   }
 
   /** Reschedules alarms & remote config reloads if needed after worker restart. */
-  public async rescheduleIfNeeded(rotationState: RotationState, currentIndexRef: { value: number }): Promise<void> {
+  public async rescheduleIfNeeded(rotationState: RotationState, currentIndexRef: { value: number }): Promise<{ reinitNeeded: boolean }> {
     try {
-      if (!rotationState?.isRotating) return;
+      if (!rotationState?.isRotating) return { reinitNeeded: false };
       const { loadedConfig } = await this.configService.loadFromStorage();
       this.focusService.setConfig(loadedConfig);
       const expectedPages = loadedConfig?.pages?.length ?? 0;
@@ -76,9 +61,25 @@ export class StartupRecoveryService {
       for (const id of tracked) {
         try { if (id && (await this.tabManager.ensureTabExists(id))) aliveCount++; } catch {}
       }
-      if (expectedPages > 0 && aliveCount < expectedPages) {
-        // delegate to caller to re-initialize; just exit
-        return;
+      // Additional heuristic: even if counts match enough to avoid early reinit, verify URL coverage.
+      let urlCoverageOk = true;
+      if (expectedPages > 0) {
+        try {
+          const existing = await chrome.tabs.query({});
+          const existingUrls = new Set(existing.filter(t => !!t.url).map(t => t.url!));
+          const missingUrls: string[] = [];
+            for (const p of (loadedConfig.pages || [])) {
+              if (p?.url && !existingUrls.has(p.url)) missingUrls.push(p.url);
+            }
+          // If more than half of the configured URLs are missing while state says rotating, force reinit.
+          if (missingUrls.length > Math.floor(expectedPages / 2)) urlCoverageOk = false;
+          if (!urlCoverageOk && (chrome as any)?.runtime?.lastError == null) {
+            console.debug('[startup] reschedule: URL coverage insufficient; triggering reinit', { missingUrls: missingUrls.slice(0,5) });
+          }
+        } catch {}
+      }
+      if ((expectedPages > 0 && aliveCount < expectedPages) || !urlCoverageOk) {
+        return { reinitNeeded: true };
       }
       const alarms = await chrome.alarms.getAll();
       if (!alarms.some(a => a.name === 'rotate')) {
@@ -92,8 +93,10 @@ export class StartupRecoveryService {
           await this.scheduler.create('configReload', { periodInMinutes: minutes });
         }
       }
+      return { reinitNeeded: false };
     } catch (e) {
       console.error('[startup] rescheduleIfNeeded failed', e, safeRuntimeLastError());
+      return { reinitNeeded: false };
     }
   }
 

@@ -66,14 +66,27 @@ try {
   };
 } catch {}
 
-// Re-arm on install/start
-chrome.runtime.onInstalled.addListener(() => {
-  rotationService.rescheduleIfNeeded();
-});
+// Re-arm on install/start. If prior state says we were rotating, re-initialize in preservation mode
+// so existing tabs (still open in the browser) are not closed.
+async function attemptPreservedResume(context: 'onInstalled' | 'onStartup') {
+  try {
+    const stored = await (rotationService as any).storage.get(StorageKeys.RotationState);
+    const wasRotating = !!stored?.rotationState?.isRotating || !!stored?.isRotating;
+    if (wasRotating) {
+      console.log(`[bg] ${context}: detected prior active rotation; preserving existing tabs.`);
+      await (rotationService as any).initialize({ preserveExisting: true });
+    } else {
+      // Just reschedule any alarms without destructive reset.
+      await rotationService.rescheduleIfNeeded();
+    }
+  } catch (e) {
+    console.warn('[bg] preserved resume failed; falling back to reschedule', e);
+    try { await rotationService.rescheduleIfNeeded(); } catch {}
+  }
+}
 
-chrome.runtime.onStartup.addListener(() => {
-  rotationService.rescheduleIfNeeded();
-});
+chrome.runtime.onInstalled.addListener(() => { attemptPreservedResume('onInstalled'); });
+chrome.runtime.onStartup.addListener(() => { attemptPreservedResume('onStartup'); });
 
 // Alarms dispatcher
 chrome.alarms.onAlarm.addListener((alarm) => {
@@ -157,7 +170,9 @@ chrome.runtime.onMessage.addListener(
         if (!rotationService.isRotating) {
           await rotationService.initialize();
         } else {
-          console.log('[bg] Already rotating');
+          // Instead of ignoring, allow a preservation re-init request if client wants a refresh without tab closure.
+          console.log('[bg] Already rotating; refreshing state with preservation');
+          await (rotationService as any).initialize({ preserveExisting: true });
         }
       } catch (e) {
         console.error('[bg] Failed to start rotation:', e);

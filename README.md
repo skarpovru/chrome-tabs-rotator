@@ -305,6 +305,57 @@ If you add a new background file under `src/background/`, it is automatically pi
 
 > If you later need Chrome APIs in the UI (rare), add `"types": ["chrome-types"]` (or a minimal stub) to `tsconfig.app.json`.
 
+### Continuous Integration & Coverage
+
+GitHub Actions workflow (`.github/workflows/ci.yml`) runs on pushes & pull requests targeting `main`.
+
+Pipeline steps:
+
+1. Checkout & cache dependencies.
+2. `yarn typecheck` (background + UI TS integrity).
+3. `yarn test:bg` (background Jasmine specs).
+4. `yarn test:ui` (Karma/ChromeHeadless UI specs).
+5. Build & upload extension artifact (optional).
+6. Upload compiled background spec output for debugging.
+
+Key scripts:
+
+| Script | Purpose |
+|--------|---------|
+| `yarn test` | Full suite (`test:all`). |
+| `yarn test:bg` | Background specs. |
+| `yarn test:ui` | UI specs. |
+| `yarn test:all` | Background then UI. |
+| `yarn test:bg:watch` | Watch background specs. |
+| `yarn test:ui:watch` | Watch UI specs. |
+
+Coverage (current status):
+
+- UI tests: Karma is configured; enable coverage via `ng test --code-coverage` (add a script like `test:ui:coverage`).
+- Background tests: Add NYC + source maps to instrument TS (e.g., `nyc --reporter=lcov yarn test:bg`).
+
+Example UI coverage run:
+
+```powershell
+ng test --watch=false --code-coverage
+```
+
+To add background coverage:
+
+```powershell
+yarn add -D nyc source-map-support
+nyc --reporter=lcov --reporter=text-summary yarn test:bg
+```
+
+Optionally merge coverage reports and upload to Codecov:
+
+```powershell
+npm install -D codecov
+codecov -f coverage/lcov.info
+```
+
+Remember to exclude `out-tsc/` from instrumentation (instrument sources, not compiled output).
+
 ---
 
 ## Changelog

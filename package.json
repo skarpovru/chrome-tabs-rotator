@@ -13,7 +13,10 @@
     "test:ui": "ng test --watch=false --browsers=ChromeHeadless || ng test --watch=false",
     "test:ui:watch": "ng test",
     "test:all": "yarn test:bg && yarn test:ui",
-    "test:all:watch": "concurrently \"yarn test:bg:watch\" \"ng test\""
+    "test:all:watch": "concurrently \"yarn test:bg:watch\" \"ng test\"",
+    "test": "yarn test:all",
+    "test:bg:coverage": "yarn test:bg --reporters=junit",
+    "test:coverage": "yarn test:all"
   },
   "private": true,
   "dependencies": {

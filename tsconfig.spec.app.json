@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./out-tsc/spec-app",
+    "types": ["jasmine", "chrome-types"],
+    "moduleResolution": "bundler",
+    "module": "ES2022",
+    "target": "ES2022",
+    "esModuleInterop": true
+  },
+  "include": [
+    "src/app/**/*.spec.ts",
+    "src/app/**/*.d.ts",
+    "src/types/**/*.d.ts"
+  ],
+  "exclude": [
+    "src/background/**"
+  ]
+}

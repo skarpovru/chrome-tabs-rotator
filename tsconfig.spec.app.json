@@ -9,6 +9,7 @@
     "esModuleInterop": true
   },
   "include": [
+    "src/test.ts",
     "src/app/**/*.spec.ts",
     "src/app/**/*.d.ts",
     "src/types/**/*.d.ts"

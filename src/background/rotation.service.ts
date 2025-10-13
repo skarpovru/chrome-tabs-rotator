@@ -1071,6 +1071,10 @@ export class RotationService {
     try { preservedResumeAt = await this.storage.get<number>(StorageKeys.PreservedResumeAt); } catch {}
     let heartbeatAt: number | undefined;
     try { heartbeatAt = await this.storage.get<number>(StorageKeys.RotationHeartbeat); } catch {}
+    let preserveMaxAge: number | undefined;
+    try { preserveMaxAge = await this.storage.get<number>(StorageKeys.PreserveHeartbeatMaxAgeSeconds); } catch {}
+    let lastDecision: any = undefined;
+    try { lastDecision = (chrome.runtime as any).__lastPreserveDecision; } catch {}
     return this.diagnosticsService.assembleDiagnostics({
       tabs: this.tabsConfig?.tabs,
       isRotating: this.isRotating,
@@ -1088,6 +1092,8 @@ export class RotationService {
         badgeColor: compositeBadgeColor,
         preservedResumeAt,
         heartbeatAt,
+        preserveMaxAgeSeconds: preserveMaxAge,
+        lastPreserveDecision: lastDecision,
       },
       focus: this.focusOrchestrator.lastAttempt,
       rotationStateTabIds: this.rotationState.tabIds ?? [],

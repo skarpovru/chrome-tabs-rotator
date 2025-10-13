@@ -92,6 +92,16 @@
             {{ d.nextRotationDueAt }}
           </li>
           <li><span class="text-gray-600">Now:</span> {{ d.now }}</li>
+          <li *ngIf="d.heartbeatAt"><span class="text-gray-600">Heartbeat at:</span> {{ d.heartbeatAt }} (age {{ ((d.now - d.heartbeatAt)/1000) | number:'1.0-0' }}s)</li>
+          <li *ngIf="d.preservedResumeAt"><span class="text-gray-600">Preserved resume at:</span> {{ d.preservedResumeAt }} (age {{ ((d.now - d.preservedResumeAt)/1000) | number:'1.0-0' }}s)</li>
+          <li>
+            <span class="text-gray-600">Preserve max age (s):</span>
+            <input type="number" min="10" aria-label="Preserve max age seconds" class="w-20 ml-1 border rounded px-1 py-0.5 text-xs" [value]="d.rotation?.preserveMaxAgeSeconds || ''" (change)="updatePreserveMaxAge($event.target.value)" />
+          </li>
+          <li *ngIf="d.rotation?.lastPreserveDecision">
+            <span class="text-gray-600">Last preserve decision:</span>
+            {{ d.rotation.lastPreserveDecision.reason }} (age={{ d.rotation.lastPreserveDecision.ageSeconds }}s context={{ d.rotation.lastPreserveDecision.context }})
+          </li>
         </ul>
       </div>
 

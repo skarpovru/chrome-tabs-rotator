@@ -27,6 +27,8 @@ export interface RotationDiagnosticsState {
   badgeColor?: string;
   preservedResumeAt?: number | null;
   heartbeatAt?: number | null;
+  preserveMaxAgeSeconds?: number | null;
+  lastPreserveDecision?: any;
 }
 
 export class DiagnosticsService {

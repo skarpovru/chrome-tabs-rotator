@@ -163,6 +163,22 @@ export class DiagnosticsPanelComponent {
     }
   }
 
+  updatePreserveMaxAge(val: string) {
+    const num = Number(val);
+    if (!isFinite(num) || num < 10) return; // basic validation
+    try {
+      chrome.runtime.sendMessage({ action: 'setPreserveMaxAge', value: num }, undefined, (res: any) => {
+        const lastErr = safeRuntimeLastError();
+        if (lastErr) { this.error = 'Set max age failed: ' + lastErr; }
+        else if (!res || res.ok === false) { this.error = 'Set max age failed: ' + (res?.error || 'unknown'); }
+        else {
+          if (this.diags?.rotation) this.diags.rotation.preserveMaxAgeSeconds = num;
+        }
+        this.cdr.detectChanges();
+      });
+    } catch {}
+  }
+
   clearActivationError() {
     this.loading = true;
     try {

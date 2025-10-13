@@ -12,4 +12,5 @@ export enum StorageKeys {
   ActivationHistory = 'activationHistory',
   RotationHeartbeat = 'rotationHeartbeat', // periodically updated while rotating (last healthy activity timestamp)
   PreservedResumeAt = 'preservedResumeAt', // timestamp of last preserved resume initialization
+  PreserveHeartbeatMaxAgeSeconds = 'preserveHeartbeatMaxAgeSeconds', // user-configurable max age threshold
 }

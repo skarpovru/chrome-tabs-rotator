@@ -19,7 +19,14 @@ export class ResumeHeuristicUtil {
    */
   async shouldPreserveRotation(params: { wasRotating: boolean; maxAgeSeconds?: number }): Promise<PreserveDecision> {
     const { wasRotating } = params;
-    const maxAge = params.maxAgeSeconds ?? 300; // 5 minutes default
+    let maxAge = params.maxAgeSeconds;
+    if (maxAge == null) {
+      try {
+        const stored = await this.storage.get<number>(StorageKeys.PreserveHeartbeatMaxAgeSeconds);
+        if (typeof stored === 'number' && stored > 10) maxAge = stored; // sanity lower bound 10s
+      } catch {}
+    }
+    if (maxAge == null) maxAge = 300; // fallback default 5 min
     if (!wasRotating) return { preserve: false, reason: 'not-rotating' };
     let lastHeartbeatAt: number | undefined;
     try { lastHeartbeatAt = await this.storage.get<number>(StorageKeys.RotationHeartbeat); } catch {}

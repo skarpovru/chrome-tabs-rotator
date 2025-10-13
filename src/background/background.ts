@@ -15,6 +15,7 @@ const rotationService = new RotationService(
   toolbarManagerService
 );
 const resumeHeuristic = new ResumeHeuristicUtil((rotationService as any).storage);
+let __lastPreserveDecision: any = null;
 
 // DEVELOPMENT DIAGNOSTIC INSTRUMENTATION
 // Wrap chrome.runtime.sendMessage to capture stack traces when a lastError occurs.
@@ -76,6 +77,7 @@ async function attemptPreservedResume(context: 'onInstalled' | 'onStartup') {
     const wasRotating = !!stored?.rotationState?.isRotating || !!stored?.isRotating;
     if (!wasRotating) { await rotationService.rescheduleIfNeeded(); return; }
     const decision = await resumeHeuristic.shouldPreserveRotation({ wasRotating });
+    __lastPreserveDecision = { ...decision, decidedAt: Date.now(), context };
     if (decision.preserve) {
       console.log(`[bg] ${context}: preserved resume (${decision.reason}, ageSeconds=${decision.ageSeconds}).`);
       try { await (rotationService as any).storage.set({ [StorageKeys.PreservedResumeAt]: Date.now() }); } catch {}
@@ -271,6 +273,28 @@ chrome.runtime.onMessage.addListener(
       try {
         await rotationService.clearActivationHistory();
         sendResponse({ ok: true });
+      } catch (e) { sendResponse({ ok: false, error: String(e) }); }
+    })();
+    return true;
+  }
+
+  if ((message as any).action === 'getPreserveMaxAge') {
+    (async () => {
+      try {
+        const val = await (rotationService as any).storage.get(StorageKeys.PreserveHeartbeatMaxAgeSeconds);
+        sendResponse({ ok: true, value: val });
+      } catch (e) { sendResponse({ ok: false, error: String(e) }); }
+    })();
+    return true;
+  }
+
+  if ((message as any).action === 'setPreserveMaxAge') {
+    (async () => {
+      try {
+        const newVal = Number((message as any).value);
+        if (!isFinite(newVal) || newVal < 10) throw new Error('invalid max age');
+        await (rotationService as any).storage.set({ [StorageKeys.PreserveHeartbeatMaxAgeSeconds]: newVal });
+        sendResponse({ ok: true, value: newVal });
       } catch (e) { sendResponse({ ok: false, error: String(e) }); }
     })();
     return true;

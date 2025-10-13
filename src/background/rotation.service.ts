@@ -217,7 +217,18 @@ export class RotationService {
     }
   }
 
-  async initialize(): Promise<void> {
+  /**
+   * Initialize (or re-initialize) rotation.
+   * By default a re-initialize while already rotating performs a full stopRotation(),
+   * which removes all owned tabs before creating a fresh set. During an MV3 service
+   * worker restart ("crash" from the user perspective) we instead want to KEEP the
+   * existing rotation tabs and simply rebuild in-memory state & scheduling so the
+   * user's pages are not closed.
+   *
+   * Passing opts.preserveExisting=true skips the destructive stopRotation() path
+   * and attempts to reuse / adopt currently tracked tabs.
+   */
+  async initialize(opts?: { preserveExisting?: boolean }): Promise<void> {
     if (this.starting) {
       console.info('[rotator] initialize already in progress; skipping.');
       return;
@@ -233,8 +244,14 @@ export class RotationService {
       // Clear all leftover reload:* alarms via scheduler helper
       await this.scheduler.clearAllReloads();
 
-      if (this.isRotating) {
+      const preserve = !!opts?.preserveExisting;
+      if (this.isRotating && !preserve) {
         await this.stopRotation();
+      } else if (this.isRotating && preserve) {
+        // Rebuild in-memory structures for existing tabs (created before SW restart)
+        await this.tryRebuildTabs();
+        // Keep rotationState.tabIds as-is; just clear alarms & continue.
+        if (this.debugActivationLogging) console.debug('[rotator] preserveExisting: reusing existing rotation tabs:', this.rotationState.tabIds);
       }
 
       try {
@@ -267,18 +284,35 @@ export class RotationService {
           });
           return;
         }
-        await this.stateFacade.set({
-          rotating: true,
-          currentIndex: this.currentIndex,
-          tabsConfig: this.tabsConfig,
-          tabIds: this.rotationState.tabIds,
-          lastActivatedPageIndex: this.lastActivatedPageIndex,
-          lastActivatedTabId: this.lastActivatedTabId,
-          rotationCycle: this.rotationCycle,
-        });
-        await this.createTabs(config);
-        // Remove any session-restored duplicate tabs matching rotation pages that are not part of current tracking set.
-        await this.prunePreexistingRotationTabs(config);
+        const reuseExistingTabs = preserve && this.isRotating && (this.rotationState.tabIds?.length || 0) > 0;
+        if (!reuseExistingTabs) {
+          await this.stateFacade.set({
+            rotating: true,
+            currentIndex: this.currentIndex,
+            tabsConfig: this.tabsConfig,
+            tabIds: this.rotationState.tabIds,
+            lastActivatedPageIndex: this.lastActivatedPageIndex,
+            lastActivatedTabId: this.lastActivatedTabId,
+            rotationCycle: this.rotationCycle,
+          });
+          await this.createTabs(config);
+          // Remove any session-restored duplicate tabs matching rotation pages that are not part of current tracking set.
+          await this.prunePreexistingRotationTabs(config);
+        } else {
+          // Existing tabs are retained; ensure tabsConfig is rebuilt for them if needed.
+          if (!this.tabsConfig || !this.tabsConfig.tabs.length) {
+            await this.tryRebuildTabs();
+          }
+          await this.stateFacade.set({
+            rotating: true,
+            currentIndex: this.currentIndex,
+            tabsConfig: this.tabsConfig,
+            tabIds: this.rotationState.tabIds,
+            lastActivatedPageIndex: this.lastActivatedPageIndex,
+            lastActivatedTabId: this.lastActivatedTabId,
+            rotationCycle: this.rotationCycle,
+          });
+        }
         await this.tryFullscreen(config);
         await this.startRotationProcess(config);
       };

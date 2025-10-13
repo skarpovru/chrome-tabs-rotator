@@ -1,6 +1,6 @@
 {
   "spec_dir": "out-tsc/background-spec/background/__tests__",
-  "spec_files": ["**/*.spec.js"],
+  "spec_files": ["**/*.bg-spec.js"],
   "helpers": [],
   "env": {
     "stopSpecOnExpectationFailure": false,

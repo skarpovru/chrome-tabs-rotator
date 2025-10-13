@@ -20,6 +20,7 @@ export type MetricsEventType =
   | 'focus-attempt'
   | 'tab-created'
   | 'reload-scheduled'
+  | 'preserved-resume'
   | 'diagnostics-tick';
 
 export interface MetricsEvent<T = any> {
@@ -66,6 +67,9 @@ export class MetricsService {
   }
   recordReloadScheduled(tabId: number, seconds: number) {
     this.counters.reloadsScheduled++; this.emit('reload-scheduled', { tabId, seconds });
+  }
+  recordPreservedResume(info?: { ageSeconds?: number; heartbeatAt?: number }) {
+    this.emit('preserved-resume', info);
   }
 
   snapshot() { return { counters: { ...this.counters } }; }

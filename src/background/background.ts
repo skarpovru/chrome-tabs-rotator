@@ -4,6 +4,7 @@ import { ControlMessage } from '../shared/messages';
 import { StorageKeys } from '../app/models';
 import { CustomHttpClient } from './custom-http-client.service';
 import { ConfigValidatorService, ToolbarManagerService } from '../app/services';
+import { ResumeHeuristicUtil } from './resume-heuristic.util';
 
 const http = new CustomHttpClient();
 const configValidator = new ConfigValidatorService();
@@ -13,6 +14,7 @@ const rotationService = new RotationService(
   configValidator,
   toolbarManagerService
 );
+const resumeHeuristic = new ResumeHeuristicUtil((rotationService as any).storage);
 
 // DEVELOPMENT DIAGNOSTIC INSTRUMENTATION
 // Wrap chrome.runtime.sendMessage to capture stack traces when a lastError occurs.
@@ -72,11 +74,15 @@ async function attemptPreservedResume(context: 'onInstalled' | 'onStartup') {
   try {
     const stored = await (rotationService as any).storage.get(StorageKeys.RotationState);
     const wasRotating = !!stored?.rotationState?.isRotating || !!stored?.isRotating;
-    if (wasRotating) {
-      console.log(`[bg] ${context}: detected prior active rotation; preserving existing tabs.`);
+    if (!wasRotating) { await rotationService.rescheduleIfNeeded(); return; }
+    const decision = await resumeHeuristic.shouldPreserveRotation({ wasRotating });
+    if (decision.preserve) {
+      console.log(`[bg] ${context}: preserved resume (${decision.reason}, ageSeconds=${decision.ageSeconds}).`);
+      try { await (rotationService as any).storage.set({ [StorageKeys.PreservedResumeAt]: Date.now() }); } catch {}
+      try { (rotationService as any).metrics?.recordPreservedResume({ ageSeconds: decision.ageSeconds, heartbeatAt: decision.lastHeartbeatAt }); } catch {}
       await (rotationService as any).initialize({ preserveExisting: true });
     } else {
-      // Just reschedule any alarms without destructive reset.
+      console.log(`[bg] ${context}: not preserving (${decision.reason}); performing normal reschedule.`);
       await rotationService.rescheduleIfNeeded();
     }
   } catch (e) {

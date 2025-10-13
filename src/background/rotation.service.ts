@@ -682,6 +682,10 @@ export class RotationService {
     }
     this.rotating = true;
     try {
+      // Heartbeat write (fast non-blocking fire & forget) to signal liveness before heavy work
+      try {
+        await this.storage.set({ [StorageKeys.RotationHeartbeat]: Date.now() });
+      } catch {}
       let beforeActive: chrome.tabs.Tab | undefined;
       try {
         const winId = this.windowId;
@@ -1063,6 +1067,10 @@ export class RotationService {
   public async getDiagnostics(): Promise<any> {
     const healthSnap = this.healthMonitor.snapshot();
     const compositeBadgeColor = this.healthMonitor.computeCompositeBadgeColor();
+    let preservedResumeAt: number | undefined;
+    try { preservedResumeAt = await this.storage.get<number>(StorageKeys.PreservedResumeAt); } catch {}
+    let heartbeatAt: number | undefined;
+    try { heartbeatAt = await this.storage.get<number>(StorageKeys.RotationHeartbeat); } catch {}
     return this.diagnosticsService.assembleDiagnostics({
       tabs: this.tabsConfig?.tabs,
       isRotating: this.isRotating,
@@ -1078,6 +1086,8 @@ export class RotationService {
         lastStallReason: healthSnap.lastStallReason,
         severity: healthSnap.severity,
         badgeColor: compositeBadgeColor,
+        preservedResumeAt,
+        heartbeatAt,
       },
       focus: this.focusOrchestrator.lastAttempt,
       rotationStateTabIds: this.rotationState.tabIds ?? [],

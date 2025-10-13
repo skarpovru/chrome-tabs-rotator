@@ -10,4 +10,6 @@ export enum StorageKeys {
   RotationState = 'rotationState',
   DebugActivationLogging = 'debugActivationLogging',
   ActivationHistory = 'activationHistory',
+  RotationHeartbeat = 'rotationHeartbeat', // periodically updated while rotating (last healthy activity timestamp)
+  PreservedResumeAt = 'preservedResumeAt', // timestamp of last preserved resume initialization
 }

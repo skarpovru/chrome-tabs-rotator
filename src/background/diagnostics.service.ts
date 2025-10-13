@@ -25,6 +25,8 @@ export interface RotationDiagnosticsState {
   lastStallReason: string | null;
   severity?: 'ok' | 'warn' | 'error';
   badgeColor?: string;
+  preservedResumeAt?: number | null;
+  heartbeatAt?: number | null;
 }
 
 export class DiagnosticsService {

@@ -5,8 +5,13 @@
   "compilerOptions": {
     "outDir": "./out-tsc/spec",
     "types": [
-      "jasmine"
-    ]
+      "jasmine",
+      "chrome-types"
+    ],
+    "moduleResolution": "bundler",
+    "module": "ES2022",
+    "target": "ES2022",
+    "esModuleInterop": true
   },
   "include": [
     "src/**/*.spec.ts",

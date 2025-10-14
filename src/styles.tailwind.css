@@ -311,6 +311,9 @@
   .grid {
     display: grid;
   }
+  .inline {
+    display: inline;
+  }
   .inline-flex {
     display: inline-flex;
   }
@@ -364,6 +367,9 @@
   }
   .table-auto {
     table-layout: auto;
+  }
+  .animate-spin-slow {
+    animation: spin 3s linear infinite;
   }
   .cursor-pointer {
     cursor: pointer;
@@ -957,6 +963,11 @@ input[type="number"]::-webkit-inner-spin-button {
 @property --tw-ease {
   syntax: "*";
   inherits: false;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 @layer properties {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {

@@ -25,6 +25,9 @@ jobs:
       - name: Type check
         run: yarn typecheck
 
+      - name: CSS Lint
+        run: yarn lint:css
+
       - name: Background tests (coverage)
         run: yarn test:bg:coverage
 

@@ -1,4 +1,7 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
+echo "Running TypeScript typecheck..."
+yarn typecheck || exit 1
+echo "Running CSS lint..."
 yarn lint:css

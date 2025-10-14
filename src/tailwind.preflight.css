@@ -1,0 +1,111 @@
+/* Tailwind preflight & design tokens extracted for ordering compliance */
+@source "src/**/*.{html,ts}";
+
+@theme {
+  /* Breakpoints */
+  --breakpoint-sm: 600px;
+  --breakpoint-md: 960px;
+  --breakpoint-lg: 1280px;
+  --breakpoint-xl: 1440px;
+
+  /* Font sizes */
+  --text-xs: 0.625rem;
+  --text-sm: 0.75rem;
+  --text-md: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.125rem;
+  --text-2xl: 1.25rem;
+  --text-3xl: 1.5rem;
+  --text-4xl: 2rem;
+  --text-5xl: 2.25rem;
+  --text-6xl: 2.5rem;
+  --text-7xl: 3rem;
+  --text-8xl: 4rem;
+  --text-9xl: 6rem;
+  --text-10xl: 8rem;
+
+  /* Colors */
+  --color-primary: #577399;
+  --color-primary-100: #11171e;
+  --color-primary-200: #232e3d;
+  --color-primary-300: #34455b;
+  --color-primary-400: #465c7a;
+  --color-primary-500: #577399;
+  --color-primary-600: #768eb0;
+  --color-primary-700: #98aac4;
+  --color-primary-800: #bac7d8;
+  --color-primary-900: #dde3eb;
+  --color-secondary: #bdd5ea;
+  --color-secondary-100: #142c40;
+  --color-secondary-200: #295881;
+  --color-secondary-300: #3d83c1;
+  --color-secondary-400: #7dacd6;
+  --color-secondary-500: #bdd5ea;
+  --color-secondary-600: #cadeee;
+  --color-secondary-700: #d7e6f3;
+  --color-secondary-800: #e5eef7;
+  --color-secondary-900: #f2f7fb;
+  --color-ghost: #f7f7ff;
+  --color-ghost-100: #000064;
+  --color-ghost-200: #0000c8;
+  --color-ghost-300: #2d2dff;
+  --color-ghost-400: #9191ff;
+  --color-ghost-500: #f7f7ff;
+  --color-ghost-600: #f7f7ff;
+  --color-ghost-700: #f9f9ff;
+  --color-ghost-800: #fbfbff;
+  --color-ghost-900: #fdfdff;
+  --color-accent: #495867;
+  --color-accent-100: #0f1215;
+  --color-accent-200: #1e242a;
+  --color-accent-300: #2c363f;
+  --color-accent-400: #3b4754;
+  --color-accent-500: #495867;
+  --color-accent-600: #667a8f;
+  --color-accent-700: #8b9cac;
+  --color-accent-800: #b1bdc8;
+  --color-accent-900: #d8dee3;
+  --color-warn: #fe5f55;
+  --color-warn-100: #430500;
+  --color-warn-200: #860a01;
+  --color-warn-300: #c90e01;
+  --color-warn-400: #fe1f0f;
+  --color-warn-500: #fe5f55;
+  --color-warn-600: #fe7e75;
+  --color-warn-700: #fe9e97;
+  --color-warn-800: #ffbfba;
+  --color-warn-900: #ffdfdc;
+  --spacing-13: 3.25rem;
+  --spacing-15: 3.75rem;
+  --spacing-18: 4.5rem;
+  --spacing-22: 5.5rem;
+  --spacing-26: 6.5rem;
+  --spacing-30: 7.5rem;
+  --spacing-50: 12.5rem;
+  --spacing-90: 22.5rem;
+  --spacing-100: 25rem;
+  --spacing-120: 30rem;
+  --spacing-128: 32rem;
+  --spacing-140: 35rem;
+  --spacing-160: 40rem;
+  --spacing-180: 45rem;
+  --spacing-192: 48rem;
+  --spacing-200: 50rem;
+  --spacing-240: 60rem;
+  --spacing-256: 64rem;
+  --spacing-280: 70rem;
+  --spacing-320: 80rem;
+  --spacing-360: 90rem;
+  --spacing-400: 100rem;
+  --spacing-480: 120rem;
+}
+
+/* Import Tailwind’s base/theme layers */
+@import "tailwindcss";
+
+/* Register plugins before expanding utilities */
+@plugin "@tailwindcss/forms";
+
+/* Finally, expand utilities (needed in some build pipelines) */
+@tailwind utilities;

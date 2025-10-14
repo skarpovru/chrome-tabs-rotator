@@ -19,18 +19,21 @@
     "test:bg:coverage": "yarn test:bg:build && nyc --reporter=lcov --reporter=text-summary node scripts/run-bg-specs.cjs",
     "test:ui:coverage": "cross-env KARMA_BROWSERS=ChromeHeadlessCI ng test --watch=false --code-coverage",
     "test:coverage": "yarn test:bg:coverage && yarn test:ui:coverage",
-    "lint:css": "stylelint \"src/**/*.{css,scss}\""
+    "lint:css": "stylelint \"src/**/*.{css,scss}\"",
+  "lint:ts": "eslint \"src/**/*.ts\"",
+  "lint:ts:strict": "eslint --max-warnings=0 \"src/**/*.ts\"",
+  "lint:ts:fix": "eslint --fix \"src/**/*.ts\""
   },
   "private": true,
   "dependencies": {
-    "@angular/animations": "20.3.3",
-    "@angular/common": "20.3.3",
-    "@angular/compiler": "20.3.3",
-    "@angular/core": "20.3.3",
-    "@angular/forms": "20.3.3",
-    "@angular/platform-browser": "20.3.3",
-    "@angular/platform-browser-dynamic": "20.3.3",
-    "@angular/router": "20.3.3",
+  "@angular/animations": "20.3.4",
+  "@angular/common": "20.3.4",
+  "@angular/compiler": "20.3.4",
+  "@angular/core": "20.3.4",
+  "@angular/forms": "20.3.4",
+  "@angular/platform-browser": "20.3.4",
+  "@angular/platform-browser-dynamic": "20.3.4",
+  "@angular/router": "20.3.4",
     "@fortawesome/angular-fontawesome": "3.0.0",
     "@fortawesome/free-solid-svg-icons": "7.1.0",
     "@tailwindcss/postcss": "4.1.14",
@@ -42,9 +45,9 @@
   },
   "devDependencies": {
     "@angular-builders/custom-webpack": "20.0.0",
-    "@angular/build": "20.3.4",
-    "@angular/cli": "20.3.4",
-    "@angular/compiler-cli": "20.3.3",
+  "@angular/build": "20.3.5",
+  "@angular/cli": "20.3.5",
+  "@angular/compiler-cli": "20.3.4",
     "@tailwindcss/forms": "0.5.10",
     "@types/file-saver": "2.0.7",
     "@types/jasmine": "5.1.9",
@@ -71,7 +74,13 @@
     "xbytes": "1.9.1",
     "stylelint": "16.9.0",
     "stylelint-config-standard": "36.0.0",
-    "stylelint-config-recommended": "14.0.0"
-    ,"husky": "9.1.6"
+    "stylelint-config-recommended": "14.0.0",
+    "husky": "9.1.6",
+    "eslint": "9.11.1",
+    "@typescript-eslint/parser": "8.7.0",
+    "@typescript-eslint/eslint-plugin": "8.7.0",
+    "@angular-eslint/eslint-plugin": "18.3.1",
+    "@angular-eslint/eslint-plugin-template": "18.3.1",
+    "@angular-eslint/template-parser": "18.3.1"
   }
 }

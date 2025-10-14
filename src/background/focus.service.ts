@@ -70,7 +70,7 @@ export class FocusService {
             focused: forceFocus && !this.preventWindowFocus,
           });
           this.windowId = tab.windowId;
-          this.record(source, this.windowId, !this.preventWindowFocus);
+          this.record(source, this.windowId ?? null, !this.preventWindowFocus);
           return;
         }
       }

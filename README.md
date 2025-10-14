@@ -22,7 +22,12 @@ A lightweight Chrome/Chromium extension that cycles through a list of URLs in se
   - [Tips \& Troubleshooting](#tips--troubleshooting)
   - [Privacy \& Permissions](#privacy--permissions)
   - [Development](#development)
+    - [Test Suite Overview (UI + Background)](#test-suite-overview-ui--background)
+      - [Background Tests](#background-tests)
+      - [UI Tests](#ui-tests)
+      - [Combined](#combined)
     - [TypeScript Project Layout (Multi-Config)](#typescript-project-layout-multi-config)
+    - [Continuous Integration \& Coverage](#continuous-integration--coverage)
   - [Changelog](#changelog)
   - [Support](#support)
   - [Architecture](#architecture)
@@ -350,7 +355,7 @@ nyc --reporter=lcov --reporter=text-summary yarn test:bg
 Optionally merge coverage reports and upload to Codecov:
 
 ```powershell
-npm install -D codecov
+yarn install -D codecov
 codecov -f coverage/lcov.info
 ```
 

@@ -203,6 +203,9 @@
   .visible {
     visibility: visible;
   }
+  .relative {
+    position: relative;
+  }
   .static {
     position: static;
   }
@@ -226,6 +229,9 @@
   }
   .mb-3 {
     margin-bottom: calc(var(--spacing) * 3);
+  }
+  .ml-1 {
+    margin-left: calc(var(--spacing) * 1);
   }
   .form-checkbox {
     appearance: none;
@@ -352,6 +358,9 @@
   }
   .min-w-100 {
     min-width: var(--spacing-100);
+  }
+  .shrink {
+    flex-shrink: 1;
   }
   .table-auto {
     table-layout: auto;

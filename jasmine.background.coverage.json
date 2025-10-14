@@ -1,0 +1,11 @@
+{
+  "spec_dir": "src/background/__tests__",
+  "spec_files": [
+    "**/*.bg-spec.ts"
+  ],
+  "helpers": [
+    "helpers/**/*.ts"
+  ],
+  "random": false,
+  "stopSpecOnExpectationFailure": false
+}

@@ -15,8 +15,9 @@
     "test:all": "yarn test:bg && yarn test:ui",
     "test:all:watch": "concurrently \"yarn test:bg:watch\" \"ng test\"",
     "test": "yarn test:all",
-    "test:bg:coverage": "yarn test:bg --reporters=junit",
-    "test:coverage": "yarn test:all"
+    "test:bg:coverage": "yarn test:bg:build && nyc --reporter=lcov --reporter=text-summary node scripts/run-bg-specs.cjs",
+    "test:ui:coverage": "ng test --watch=false --code-coverage",
+    "test:coverage": "yarn test:bg:coverage && yarn test:ui:coverage"
   },
   "private": true,
   "dependencies": {
@@ -43,23 +44,28 @@
     "@angular/cli": "20.3.4",
     "@angular/compiler-cli": "20.3.3",
     "@tailwindcss/forms": "0.5.10",
-    "chrome-types": "0.1.381",
     "@types/file-saver": "2.0.7",
     "@types/jasmine": "5.1.9",
     "@types/lodash": "4.17.20",
+    "@types/node": "^24.7.2",
     "archiver": "7.0.1",
+    "chrome-types": "0.1.381",
+    "concurrently": "9.2.1",
+    "cross-env": "^10.1.0",
+    "jasmine": "5.12.0",
     "jasmine-core": "5.12.0",
     "karma": "6.4.4",
     "karma-chrome-launcher": "3.2.0",
     "karma-coverage": "2.2.1",
     "karma-jasmine": "5.1.0",
     "karma-jasmine-html-reporter": "2.1.0",
+    "nyc": "^17.1.0",
     "postcss": "8.5.6",
+    "source-map-support": "^0.5.21",
     "tailwindcss": "4.1.14",
+    "ts-node": "^10.9.2",
     "typescript": "5.9.3",
     "webpack-ext-reloader": "1.1.13",
-    "xbytes": "1.9.1",
-    "jasmine": "5.12.0",
-    "concurrently": "9.2.1"
+    "xbytes": "1.9.1"
   }
 }

@@ -3,7 +3,9 @@
   "compilerOptions": {
     "outDir": "./out-tsc/background-spec",
     "module": "CommonJS",
-    "moduleResolution": "node"
+    // Override base/moduleResolution for CommonJS runtime so extensionless relative imports work.
+    "moduleResolution": "node",
+    "types": ["chrome-types", "jasmine", "node"]
   },
   "include": [
     "src/background/**/*.ts",

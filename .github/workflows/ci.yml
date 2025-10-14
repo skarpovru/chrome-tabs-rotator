@@ -25,11 +25,30 @@ jobs:
       - name: Type check
         run: yarn typecheck
 
-      - name: Background tests
-        run: yarn test:bg
+      - name: Background tests (coverage)
+        run: yarn test:bg:coverage
 
-      - name: UI tests (headless)
-        run: yarn test:ui
+      - name: UI tests (coverage)
+        run: yarn test:ui:coverage
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            coverage
+            coverage/lcov.info
+            coverage/ChromeHeadless*/lcov.info
+            .nyc_output
+
+      - name: Upload coverage to Codecov (optional)
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: "coverage/lcov.info"  # UI
+          verbose: true
+        continue-on-error: true
 
       - name: Archive background spec output (always)
         if: always()

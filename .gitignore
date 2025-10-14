@@ -37,6 +37,7 @@ yarn-error.log
 testem.log
 /typings
 .nyc_output
+.stylelintcache
 
 # System files
 .DS_Store

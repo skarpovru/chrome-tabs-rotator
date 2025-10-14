@@ -12,7 +12,9 @@
           "theme",
           "plugin",
           "source",
-          "utility"
+          "utility",
+          "screen",
+          "layer"
         ]
       }
     ],
@@ -34,9 +36,7 @@
     "no-duplicate-selectors": null,
     "declaration-block-no-redundant-longhand-properties": null
   },
-  "ignoreFiles": [
-    "src/styles.tailwind.css"
-  ],
+  "ignoreFiles": [],
   "overrides": [
     {
       "files": ["src/tailwind.preflight.css"],

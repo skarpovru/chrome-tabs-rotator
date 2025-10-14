@@ -161,6 +161,17 @@
           >{{ d.windowTabsPreview | json }}</pre
         >
       </div>
+      <div class="rounded-sm bg-ghost p-2 col-span-1 md:col-span-2" *ngIf="d.initializationError || d.initializationErrorAt">
+        <div class="font-semibold mb-1">Initialization Error</div>
+        <ul class="text-xs space-y-0.5">
+          <li><span class="text-gray-600">Message:</span> <span class="text-red-600">{{ d.initializationError || 'none' }}</span></li>
+          <li *ngIf="d.initializationErrorAt"><span class="text-gray-600">At:</span> {{ d.initializationErrorAt }} (age {{ d.initializationErrorAgeSeconds }}s)</li>
+          <li *ngIf="d.initializationErrorStack">
+            <span class="text-gray-600">Stack (truncated):</span>
+            <pre class="max-h-32 overflow-auto border rounded-sm p-2 bg-white text-[10px] whitespace-pre-wrap">{{ d.initializationErrorStack }}</pre>
+          </li>
+        </ul>
+      </div>
       <div class="rounded-sm bg-ghost p-2 col-span-1 md:col-span-2" *ngIf="d.lastActivatedTabId || d.lastActivationError || d.debugActivationLogging !== undefined">
         <div class="font-semibold mb-1">Activation Diagnostics</div>
         <ul class="text-xs space-y-0.5">

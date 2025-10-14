@@ -7,6 +7,7 @@ module.exports = function (config) {
     ChromeHeadlessCI: {
       base: 'ChromeHeadless',
       flags: [
+        '--headless=new',
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',

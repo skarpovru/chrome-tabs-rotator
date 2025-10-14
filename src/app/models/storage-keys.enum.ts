@@ -13,4 +13,6 @@ export enum StorageKeys {
   RotationHeartbeat = 'rotationHeartbeat', // periodically updated while rotating (last healthy activity timestamp)
   PreservedResumeAt = 'preservedResumeAt', // timestamp of last preserved resume initialization
   PreserveHeartbeatMaxAgeSeconds = 'preserveHeartbeatMaxAgeSeconds', // user-configurable max age threshold
+  InitializationError = 'initializationError', // last initialization error message
+  InitializationErrorMeta = 'initializationErrorMeta', // JSON with { at:number, stack?:string }
 }

@@ -53,14 +53,10 @@ describe('RotationService initialize error safety', () => {
       metrics
     );
 
-    let threw = false;
-    try {
-      await rot.initialize();
-    } catch (e:any) {
-      threw = true;
-      expect(e.message).toContain('forced create failure');
-    }
-    expect(threw).toBeTrue();
+    await rot.initialize();
+    // Should not throw now; instead capture error internally
+    expect(rot.initializationError).toBeTruthy();
+    expect(rot.initializationError.message).toContain('forced create failure');
 
     const finalOwned = [...(tm as any).ownedTabIds];
     expect(finalOwned.sort()).toEqual(ownedSeedIds.sort());

@@ -5,7 +5,7 @@ describe('global console guard', () => {
     /RotationStateRepository\.save failed/i,
     /storage\] (get|getMany|set|remove) failed/i,
     /Failed to set toolbar icon/i,
-    /Failed to initialize rotation: forced create failure/i
+    /Failed to initialize rotation:/i
   ];
   let originalError: (...args:any[])=>void;
   beforeAll(() => {

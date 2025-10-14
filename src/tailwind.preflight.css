@@ -1,4 +1,6 @@
 /* Tailwind preflight & design tokens extracted for ordering compliance */
+/* NOTE: All @import rules must be first (esbuild rule) */
+@import "tailwindcss";
 @source "src/**/*.{html,ts}";
 
 @theme {
@@ -100,9 +102,6 @@
   --spacing-400: 100rem;
   --spacing-480: 120rem;
 }
-
-/* Import Tailwind’s base/theme layers */
-@import "tailwindcss";
 
 /* Register plugins before expanding utilities */
 @plugin "@tailwindcss/forms";

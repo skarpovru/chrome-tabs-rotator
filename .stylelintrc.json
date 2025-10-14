@@ -17,6 +17,32 @@
       }
     ],
     "no-empty-source": null,
-    "block-no-empty": true
-  }
+    "block-no-empty": true,
+    "import-notation": null,
+    "hue-degree-notation": null,
+    "alpha-value-notation": null,
+    "selector-class-pattern": null,
+    "custom-property-pattern": null,
+    "custom-property-empty-line-before": null,
+    "declaration-empty-line-before": null,
+    "at-rule-empty-line-before": null,
+    "rule-empty-line-before": null,
+    "value-keyword-case": null,
+    "property-no-vendor-prefix": null,
+    "length-zero-no-unit": null,
+    "no-descending-specificity": null,
+    "no-duplicate-selectors": null,
+    "declaration-block-no-redundant-longhand-properties": null
+  },
+  "ignoreFiles": [
+    "src/styles.tailwind.css"
+  ],
+  "overrides": [
+    {
+      "files": ["src/tailwind.preflight.css"],
+      "rules": {
+        "no-invalid-position-at-import-rule": null
+      }
+    }
+  ]
 }

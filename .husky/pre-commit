@@ -1,4 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[husky] Pre-commit: ensuring Node environment..."
+
+# Bootstrap fnm if available and node missing (common in GUI Git environments on Windows)
+if ! command -v node >/dev/null 2>&1; then
+	if command -v fnm >/dev/null 2>&1; then
+		eval "$(fnm env --shell bash)" || true
+	fi
+fi
+
+# Fallback: if corepack present but node still missing, attempt enabling (rare)
+if ! command -v node >/dev/null 2>&1 && command -v corepack >/dev/null 2>&1; then
+	corepack enable || true
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+	echo "[husky] Warning: Node is not available; skipping type/lint checks. Use --no-verify to bypass intentionally."
+	exit 0
+fi
+
 echo "Running TypeScript typecheck..."
 yarn typecheck || exit 1
+
+echo "Running ESLint (TypeScript)..."
+yarn lint:ts:fix || yarn lint:ts || exit 1
+
 echo "Running CSS lint..."
-yarn lint:css --fix || yarn lint:css
+yarn lint:css --fix || yarn lint:css || exit 1

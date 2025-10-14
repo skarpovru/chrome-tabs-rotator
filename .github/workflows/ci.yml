@@ -25,6 +25,9 @@ jobs:
       - name: Type check
         run: yarn typecheck
 
+      - name: ESLint (TS)
+        run: yarn lint:ts
+
       - name: CSS Lint
         run: yarn lint:css
 

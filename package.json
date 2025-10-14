@@ -3,6 +3,7 @@
   "version": "1.5.0",
   "scripts": {
     "prebuild": "node scripts/build-tailwind.mjs",
+    "prepare": "husky install",
     "start": "ng build --watch --configuration development",
     "build": "ng build && node scripts/zip.js",
     "harness": "tsc -p tsconfig.harness.json && node dist/harness/scripts/tab-manager-harness.js",
@@ -71,5 +72,6 @@
     "stylelint": "16.9.0",
     "stylelint-config-standard": "36.0.0",
     "stylelint-config-recommended": "14.0.0"
+    ,"husky": "9.1.6"
   }
 }

@@ -16,7 +16,7 @@
     "test:all:watch": "concurrently \"yarn test:bg:watch\" \"ng test\"",
     "test": "yarn test:all",
     "test:bg:coverage": "yarn test:bg:build && nyc --reporter=lcov --reporter=text-summary node scripts/run-bg-specs.cjs",
-    "test:ui:coverage": "ng test --watch=false --code-coverage",
+    "test:ui:coverage": "cross-env KARMA_BROWSERS=ChromeHeadlessCI ng test --watch=false --code-coverage",
     "test:coverage": "yarn test:bg:coverage && yarn test:ui:coverage"
   },
   "private": true,

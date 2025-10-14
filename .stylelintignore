@@ -1,0 +1,4 @@
+dist/
+coverage/
+out-tsc/
+**/*.d.ts

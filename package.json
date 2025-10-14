@@ -17,7 +17,8 @@
     "test": "yarn test:all",
     "test:bg:coverage": "yarn test:bg:build && nyc --reporter=lcov --reporter=text-summary node scripts/run-bg-specs.cjs",
     "test:ui:coverage": "cross-env KARMA_BROWSERS=ChromeHeadlessCI ng test --watch=false --code-coverage",
-    "test:coverage": "yarn test:bg:coverage && yarn test:ui:coverage"
+    "test:coverage": "yarn test:bg:coverage && yarn test:ui:coverage",
+    "lint:css": "stylelint \"src/**/*.{css,scss}\""
   },
   "private": true,
   "dependencies": {
@@ -66,6 +67,9 @@
     "ts-node": "^10.9.2",
     "typescript": "5.9.3",
     "webpack-ext-reloader": "1.1.13",
-    "xbytes": "1.9.1"
+    "xbytes": "1.9.1",
+    "stylelint": "16.9.0",
+    "stylelint-config-standard": "36.0.0",
+    "stylelint-config-recommended": "14.0.0"
   }
 }

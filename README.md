@@ -28,6 +28,7 @@ A lightweight Chrome/Chromium extension that cycles through a list of URLs in se
       - [Combined](#combined)
     - [TypeScript Project Layout (Multi-Config)](#typescript-project-layout-multi-config)
     - [Continuous Integration \& Coverage](#continuous-integration--coverage)
+  - [Styling \& Tailwind v4 Pipeline](#styling--tailwind-v4-pipeline)
   - [Changelog](#changelog)
   - [Support](#support)
   - [Architecture](#architecture)
@@ -358,6 +359,43 @@ Optionally merge coverage reports and upload to Codecov:
 yarn install -D codecov
 codecov -f coverage/lcov.info
 ```
+
+### Styling & Tailwind v4 Pipeline
+
+The styling stack uses Tailwind CSS v4 directives with a split preflight file to avoid `@import` ordering warnings and centralize design tokens.
+
+Core files:
+
+| File | Purpose |
+|------|---------|
+| `src/tailwind.preflight.css` | Contains all Tailwind directives: `@source`, `@theme` tokens, `@import "tailwindcss"`, `@plugin`, `@tailwind utilities`. |
+| `src/styles.css` | Imports the preflight file first, then declares custom `@utility` classes and app base styles. |
+
+Key directives:
+
+- `@source` – Replaces the old `content` array (scan paths for class extraction).
+- `@theme {}` – Inlined design tokens (colors, spacing, breakpoints, typography) used to generate utilities.
+- `@plugin` – Registers extra plugin layers (e.g. forms).
+- `@tailwind utilities` – Forces expansion of the utilities layer (explicit for some build chains).
+- `@utility` – Define bespoke one-off utilities (e.g. `animate-spin-slow`).
+
+Linting:
+
+`stylelint` is configured (see `.stylelintrc.json`) to allow Tailwind v4 at-rules: `@source`, `@theme`, `@plugin`, `@tailwind`, `@utility`.
+
+Run CSS lint:
+
+```powershell
+yarn lint:css
+```
+
+Extending design tokens:
+
+1. Edit the `@theme` block in `src/tailwind.preflight.css`.
+2. Add any new custom utility via `@utility` in `src/styles.css`.
+3. Re-run `yarn start` (watch) or `yarn build` to ensure new classes generate.
+
+If your editor flags unknown at-rules, enable a Tailwind-aware extension; the build and Stylelint already accept them.
 
 Remember to exclude `out-tsc/` from instrumentation (instrument sources, not compiled output).
 

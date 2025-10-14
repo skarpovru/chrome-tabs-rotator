@@ -12,7 +12,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20, 22]
+        # Angular 20 requires Node ^20.19.0 || ^22.12.0 || >=24.0.0.
+        # We test the minimum supported in each active major plus latest current (24) for forward safety.
+        node: [20.19.0, 22.12.0, 24]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,12 +62,12 @@ jobs:
           path: out-tsc/background-spec
           if-no-files-found: ignore
 
-      - name: Build extension (only Node 20)
-        if: matrix.node == 20
+      - name: Build extension (single build on primary LTS Node 22)
+        if: startsWith(matrix.node, '22.')
         run: yarn build
 
       - name: Upload dist artifact
-        if: matrix.node == 20
+        if: startsWith(matrix.node, '22.')
         uses: actions/upload-artifact@v4
         with:
           name: extension-dist

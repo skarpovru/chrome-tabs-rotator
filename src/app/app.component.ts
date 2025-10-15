@@ -49,8 +49,8 @@ export class AppComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit() {
-    this.loadStoredAppConfig();
-    this.queryRotationState();
+  void this.loadStoredAppConfig();
+  void this.queryRotationState();
     chrome.extension.isAllowedFileSchemeAccess((isAllowed) => {
       console.debug('File scheme access allowed:', isAllowed);
       this.allowFileSchemeAccessMessage = !isAllowed;
@@ -58,7 +58,7 @@ export class AppComponent implements OnInit, OnDestroy {
     });
 
     // Handshake to inform background that UI is active for gated emissions
-    try { chrome.runtime.sendMessage({ action: 'uiHello' }); } catch {}
+  try { void chrome.runtime.sendMessage({ action: 'uiHello' }); } catch {}
 
   // Countdown provided by CountdownStateService (storage-backed)
     this.countdownSub = this.countdownState.state$.subscribe((state) => {
@@ -94,7 +94,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   onChangeUseRemoteConfig(useRemoteConfig: boolean) {
-    chrome.storage.local.set({
+    void chrome.storage.local.set({
       [StorageKeys.UseRemoteConfig]: useRemoteConfig,
     });
     this.loadStoredConfigData(useRemoteConfig);

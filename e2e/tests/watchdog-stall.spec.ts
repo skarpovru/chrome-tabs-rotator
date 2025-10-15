@@ -1,6 +1,7 @@
-import { test, expect } from '@playwright/test';
-import { launchExtension } from '../utils/launch-extension';
+import { expect } from '@playwright/test';
+import { test } from '../utils/extension-fixtures';
 import { callE2E } from '../utils/call-e2e-api';
+import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
 
 /**
  * Simulates a stall (no rotation progress + stale heartbeat) and verifies watchdog advances rotation.
@@ -8,26 +9,18 @@ import { callE2E } from '../utils/call-e2e-api';
  */
 
 test.describe('Watchdog stall correction', () => {
-  test('advances after simulated stall', async () => {
-    const { context, serviceWorker, extensionId } = await launchExtension();
-    try {
-      for (let i=0;i<25;i++) {
-        if (await serviceWorker.evaluate(() => !!(self as any).__e2eApi)) break;
-        if (i === 12) {
-          const popup = await context.newPage();
-          await popup.goto(`chrome-extension://${extensionId}/index.html`);
-        }
-        await new Promise(r=>setTimeout(r,200));
-      }
+  test('advances after simulated stall', async ({ ext }) => {
+    const { context, serviceWorker, extensionId } = ext;
+      await waitForWorkerApi(context);
 
       const config = { pages: [
         { url: 'https://example.com', delaySeconds: 2, reloadIntervalSeconds: 0 },
         { url: 'https://example.org', delaySeconds: 2, reloadIntervalSeconds: 0 }
       ], isFullscreen: false, preventWindowFocus: false };
-  await callE2E(context, 'startWithConfig', config as any);
-
+      await callE2E(context, 'startWithConfig', config as any);
+      await waitForTabIds(context, config.pages.length);
       // Reconfigure watchdog to short intervals for test speed
-  await callE2E(context, 'configureWatchdog', { intervalSeconds: 3, graceSeconds: 1 });
+      await callE2E(context, 'configureWatchdog', { intervalSeconds: 3, graceSeconds: 1 });
 
       // Wait for first index capture
       let initialIndex: number | undefined;
@@ -53,8 +46,6 @@ test.describe('Watchdog stall correction', () => {
       } else {
         expect(newIdx).not.toBe(initialIndex);
       }
-    } finally {
-      await context.close();
-    }
+    // end test body
   });
 });

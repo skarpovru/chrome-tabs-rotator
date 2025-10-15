@@ -1,20 +1,14 @@
-import { test, expect } from '@playwright/test';
-import { launchExtension } from '../utils/launch-extension';
+import { expect } from '@playwright/test';
+import { test } from '../utils/extension-fixtures';
 import { callE2E } from '../utils/call-e2e-api';
+import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
 
 // Uses navigation completion counts (test-only harness) to assert reload interval behavior
 test.describe('Reload interval', () => {
-  test('page with reloadIntervalSeconds yields more completed navigations', async () => {
-    const { context, serviceWorker, extensionId } = await launchExtension();
+  test('page with reloadIntervalSeconds yields more completed navigations', async ({ ext }) => {
+  const { context, serviceWorker, extensionId } = ext;
     try {
-      for (let i=0;i<25;i++) {
-        if (await serviceWorker.evaluate(() => !!(self as any).__e2eApi)) break;
-        if (i === 12) {
-          const popup = await context.newPage();
-          await popup.goto(`chrome-extension://${extensionId}/index.html`);
-        }
-        await new Promise(r=>setTimeout(r,200));
-      }
+      await waitForWorkerApi(context);
       const fastReloadSeconds = 8;
       const reloadUrl = 'https://example.com/?reload=1';
       const normalUrl = 'https://example.org/?reload=0';
@@ -22,15 +16,8 @@ test.describe('Reload interval', () => {
         { url: reloadUrl, delaySeconds: 2, reloadIntervalSeconds: fastReloadSeconds },
         { url: normalUrl, delaySeconds: 2, reloadIntervalSeconds: 0 }
       ], isFullscreen: false, preventWindowFocus: false };
-  await callE2E(context, 'startWithConfig', config as any);
-
-      // Wait for readiness
-      for (let i=0;i<40;i++) {
-        const diag: any = await callE2E(context, 'getDiagnostics');
-        const ids = diag.rotationState?.tabIds;
-        if (diag.isRotating && Array.isArray(ids) && ids.length === config.pages.length) break;
-        await new Promise(r=>setTimeout(r,400));
-      }
+      await callE2E(context, 'startWithConfig', config as any);
+      await waitForTabIds(context, config.pages.length);
 
       // Drive a few rotations deterministically (fallback to advanceIndex if rotateOnce has no effect)
       for (let i=0;i<4;i++) {

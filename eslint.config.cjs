@@ -5,7 +5,8 @@ const tsProjectConfigs = [
   './tsconfig.app.json',
   './tsconfig.background.json',
   './tsconfig.harness.json',
-  './tsconfig.e2e.json'
+  './tsconfig.e2e.json',
+  './tsconfig.tools.json'
 ];
 
 /** @type {import('eslint').Linter.FlatConfig[]} */
@@ -19,6 +20,18 @@ module.exports = [
       '**/*.bg-spec.ts', // background spec naming pattern
       'src/test.ts' // Angular test bootstrap (handled by Angular CLI test config)
     ]
+  },
+  // Playwright config (TS file at repo root not in app/background src globs)
+  {
+    files: ['playwright.config.ts'],
+    languageOptions: {
+      parser: require('@typescript-eslint/parser'),
+      parserOptions: {
+        project: tsProjectConfigs,
+        sourceType: 'module',
+        ecmaVersion: 'latest'
+      }
+    }
   },
   {
     files: ['**/*.ts'],

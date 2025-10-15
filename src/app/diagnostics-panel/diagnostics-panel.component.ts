@@ -26,8 +26,8 @@ export class DiagnosticsPanelComponent {
   constructor(private cdr: ChangeDetectorRef, private zone: NgZone, private countdownState: CountdownStateService) {}
 
   ngOnInit() {
-    this.refresh();
-    try { chrome.runtime.sendMessage({ action: 'uiHello' }); } catch {}
+  void this.refresh();
+  try { void chrome.runtime.sendMessage({ action: 'uiHello' }); } catch {}
     this.countdownSub = this.countdownState.state$.subscribe(state => {
       if (state) {
         this.countdownSeconds = state.seconds;

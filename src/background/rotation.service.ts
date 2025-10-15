@@ -173,7 +173,7 @@ export class RotationService {
           (!this.tabsConfig || !this.tabsConfig.tabs.length)
         ) {
           // Schedule async initialize (don't block constructor) so config-driven creation runs through standard path.
-          Promise.resolve().then(() =>
+          void Promise.resolve().then(() =>
             this.initialize().catch((e) =>
               console.warn('[rotator] auto-initialize after restore failed', e)
             )

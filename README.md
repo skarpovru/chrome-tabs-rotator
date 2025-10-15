@@ -22,6 +22,15 @@ A lightweight Chrome/Chromium extension that cycles through a list of URLs in se
   - [Tips \& Troubleshooting](#tips--troubleshooting)
   - [Privacy \& Permissions](#privacy--permissions)
   - [Development](#development)
+    - [End-to-End (E2E) Crash / Preservation Test](#end-to-end-e2e-crash--preservation-test)
+      - [Negative (Non-Preserve) Scenario](#negative-non-preserve-scenario)
+      - [E2E Execution](#e2e-execution)
+      - [Evaluate Harness (`__e2eApi`)](#evaluate-harness-__e2eapi)
+      - [Adding New E2E Scenarios](#adding-new-e2e-scenarios)
+      - [Current E2E Scenario Coverage (Playwright)](#current-e2e-scenario-coverage-playwright)
+      - [Harness API (`__e2eApi`)](#harness-api-__e2eapi)
+      - [Troubleshooting](#troubleshooting)
+    - [Type Checking](#type-checking)
     - [Test Suite Overview (UI + Background)](#test-suite-overview-ui--background)
       - [Background Tests](#background-tests)
       - [UI Tests](#ui-tests)
@@ -300,6 +309,26 @@ __e2eApi = {
 1. Create a spec in `e2e/tests/*.spec.ts`.
 2. Launch via one of the scripts above.
 3. Use `serviceWorker.evaluate` to call into `__e2eApi`.
+
+#### Current E2E Scenario Coverage (Playwright)
+
+The suite exercises rotation progression, reload cadence, fullscreen/focus modes, error recovery & retries, remote config reload, import/export, preservation boundaries, crash / non‑preserve restart, tab adoption and pruning, startup race handling, watchdog self‑heals (stall + missing alarms), cleanup stop path, metrics/large‑scale behavior, cross‑window isolation, storage failure resilience, and grace period enforcement. Heavy scenarios (scale, metrics snapshot growth, cross‑window) are tagged with `@heavy` and executed in a single‑worker project to reduce resource spikes.
+
+Reliability helpers (in `e2e/utils/reliability-helpers.ts`) eliminate flakiness by waiting on explicit internal signals rather than arbitrary sleeps:
+
+```ts
+waitForWorkerApi(context)        // service worker & __e2eApi ready
+waitForTabIds(context, count)    // rotation tabs created
+waitForIndex(context, idx)       // current index observed
+waitForRotationCycle(context, n) // rotation cycle counter reached
+pollAlarms(context)              // list current alarm names
+```
+
+Use these instead of manual polling loops for consistency.
+
+#### Harness API (`__e2eApi`)
+
+Minimal non‑production test surface is exposed behind a build flag. It lets tests start rotation, inspect diagnostics/state, advance indices, simulate errors, adjust watchdog/grace timing, and export/update config. For exact method names see the background script (`__e2eApi` definition). Production builds strip this entire block.
 
 #### Troubleshooting
 

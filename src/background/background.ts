@@ -239,6 +239,68 @@ try {
           return { ok: true, count: (self as any).__e2eNavCounts[url] };
         } catch (e) { return { ok: false, error: String(e) }; }
       },
+      // --- Added helpers for extended E2E scenarios ---
+      listAlarms: async () => {
+        const out: any = { alarms: [] };
+        try { if (chrome.alarms) { const all = await chrome.alarms.getAll(); out.alarms = all.map(a => a.name); } } catch (e) { out.error = String(e); }
+        return out;
+      },
+      getTabsConfig: async () => {
+        try {
+          const svc: any = rotationService as any;
+          const tabs = svc.tabsConfig?.tabs?.map((t: any) => ({
+            tabId: t.tabId,
+            nextTabId: t.nextTabId,
+            url: t.page?.url,
+            retryCount: t.retryCount,
+            reloadIntervalSeconds: t.page?.reloadIntervalSeconds,
+            rotateIntervalSeconds: t.page?.rotateIntervalSeconds
+          })) || [];
+          return { ok: true, tabs };
+        } catch (e) { return { ok: false, error: String(e) }; }
+      },
+      exportConfig: async () => {
+        try {
+          const svc: any = rotationService as any;
+          const storage = svc.storage;
+          const local = await storage.get(StorageKeys.LocalConfig);
+          return { ok: true, config: local || null };
+        } catch (e) { return { ok: false, error: String(e) }; }
+      },
+      getPreserveDecision: async () => {
+        try { return { ok: true, decision: (self as any).__lastPreserveDecision || null }; } catch (e) { return { ok: false, error: String(e) }; }
+      },
+      triggerConfigReload: async () => {
+        try { await (rotationService as any).onConfigReloadAlarm(); return { ok: true }; } catch (e) { return { ok: false, error: String(e) }; }
+      },
+      simulateError: async (url: string) => {
+        try {
+          if (!url) return { ok: false, error: 'missing url' };
+          const svc: any = rotationService as any;
+          const tab = svc.tabsConfig?.tabs?.find((t: any) => t.page?.url === url);
+          if (!tab) return { ok: false, error: 'tab not found' };
+          await svc.onHandleError(tab.tabId || tab.nextTabId, url);
+          return { ok: true };
+        } catch (e) { return { ok: false, error: String(e) }; }
+      },
+      setHeartbeatAge: async (secondsAgo: number) => {
+        try {
+          const svc: any = rotationService as any;
+          const storage = svc.storage;
+          const ts = Date.now() - Math.max(0, secondsAgo) * 1000;
+          await storage.set({ [StorageKeys.RotationHeartbeat]: ts });
+          return { ok: true, at: ts };
+        } catch (e) { return { ok: false, error: String(e) }; }
+      },
+      getActivationHistory: async () => {
+        try {
+          const svc: any = rotationService as any;
+          const hist = svc.activationDiagnostics?.getHistory?.() || [];
+          return { ok: true, history: hist };
+        } catch (e) { return { ok: false, error: String(e) }; }
+      },
+      getEnforceResumeAt: async () => { try { return { ok: true, enforceResumeAt: (rotationService as any).enforceResumeAt }; } catch (e) { return { ok: false, error: String(e) }; } },
+      setEnforceResumeAtInSeconds: async (secondsFromNow: number) => { try { (rotationService as any).enforceResumeAt = Date.now() + secondsFromNow * 1000; return { ok: true, enforceResumeAt: (rotationService as any).enforceResumeAt }; } catch (e) { return { ok: false, error: String(e) }; } },
       crash: async () => { try {
         // Ensure heartbeat & state saved right before reload for preservation heuristic
         await (rotationService as any).storage.set({ [StorageKeys.RotationHeartbeat]: Date.now() });

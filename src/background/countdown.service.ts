@@ -43,18 +43,18 @@ export class CountdownService {
         }
         // Persist to storage at most once per second when value changes
         if (seconds !== this.lastStorageSecond) {
-          try { chrome.storage.local.set({ __countdown: { seconds, nextAt: when } }); } catch {}
+          try { void chrome.storage.local.set({ __countdown: { seconds, nextAt: when } }); } catch {}
           this.lastStorageSecond = seconds;
         }
         // Badge update
         try {
           if (seconds > 0) {
             const text = seconds < 1000 ? String(seconds) : '999';
-            chrome.action.setBadgeText({ text });
+            void chrome.action.setBadgeText({ text });
             const healthColor = compositeColorProvider?.() || this.activationDiagnostics.computeHealthBadgeColor(tabsConfig);
-            chrome.action.setBadgeBackgroundColor({ color: healthColor });
+            void chrome.action.setBadgeBackgroundColor({ color: healthColor });
           } else {
-            chrome.action.setBadgeText({ text: '' });
+            void chrome.action.setBadgeText({ text: '' });
             this.stop();
             onFinished?.();
           }
@@ -63,8 +63,8 @@ export class CountdownService {
         // Best-effort; ignore errors
       }
     };
-    update();
-    this.interval = setInterval(update, 1000);
+  void update();
+  this.interval = setInterval(() => { void update(); }, 1000);
   }
 
   public stop() {

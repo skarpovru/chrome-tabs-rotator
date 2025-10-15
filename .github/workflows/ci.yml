@@ -9,33 +9,21 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # Angular 20 requires Node ^20.19.0 || ^22.12.0 || >=24.0.0.
-        # We test the minimum supported in each active major plus latest current (24) for forward safety.
-        node: [20.19.0, 22.12.0, 24]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node ${{ matrix.node }}
+      - name: Setup Node 22.12.0
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 22.12.0
           cache: yarn
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Type check
-        run: yarn typecheck
-
-      - name: ESLint (TS)
-        run: yarn lint:ts
-
-      - name: CSS Lint
-        run: yarn lint:css || echo "Ignoring stylelint non-zero exit (warnings)"
+      - name: Quality Gates (type, lint TS & CSS)
+        run: yarn quality
 
       - name: Background tests (coverage)
         run: yarn test:bg:coverage
@@ -48,7 +36,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-reports-node-${{ matrix.node }}
+          name: coverage-reports-node-22
           path: |
             coverage
             coverage/lcov.info
@@ -59,17 +47,15 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: background-spec-node-${{ matrix.node }}
+          name: background-spec-node-22
           path: out-tsc/background-spec
           if-no-files-found: ignore
 
-      - name: Build extension (single build on primary LTS Node 22)
-        if: startsWith(matrix.node, '22.')
+      - name: Build extension
         run: yarn build
 
       - name: Upload dist artifact
-        if: startsWith(matrix.node, '22.')
         uses: actions/upload-artifact@v4
         with:
-          name: extension-dist
+          name: extension-dist-node-22
           path: dist

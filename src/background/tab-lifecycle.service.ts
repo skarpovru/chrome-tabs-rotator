@@ -45,12 +45,12 @@ export class TabLifecycleService {
 
   scheduleReloadAlarm(tabId: number, seconds: number) {
     if (!tabId || tabId <= 0) return;
-    this.scheduler.scheduleReload(tabId, seconds);
+  void this.scheduler.scheduleReload(tabId, seconds);
     this.metrics.recordReloadScheduled(tabId, seconds);
   }
 
   clearReloadAlarmForTab(tabId?: number) {
-    if (tabId && tabId > 0) this.scheduler.clearReload(tabId);
+  if (tabId && tabId > 0) void this.scheduler.clearReload(tabId);
   }
 
   async handleReloadAlarm(tabId: number, tabsConfig: TabsConfig | undefined, createCb: (tc: TabConfig) => Promise<void>, setStateCb: (tabIds: number[]) => Promise<void>, delegateInvariant: () => Promise<void>): Promise<void> {

@@ -43,12 +43,12 @@ export class SchedulerService {
   /** Create (or replace) a one-off or periodic alarm */
   async create(name: string, options: ScheduleOptions): Promise<void> {
     const { when, periodInMinutes } = options;
-    chrome.alarms.create(name, { when, periodInMinutes });
+  void chrome.alarms.create(name, { when, periodInMinutes }); // explicitly ignored
   }
 
   /** Convenience: schedule to fire after a delay (ms) */
   async scheduleIn(name: string, delayMs: number): Promise<void> {
-    chrome.alarms.create(name, { when: Date.now() + Math.max(0, delayMs) });
+  void chrome.alarms.create(name, { when: Date.now() + Math.max(0, delayMs) }); // explicitly ignored
   }
 
   /** Clear specific alarm */

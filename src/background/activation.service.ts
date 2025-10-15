@@ -33,7 +33,7 @@ export class ActivationService {
             if (act?.id) { beforeActiveId = act.id; break; }
           }
         } catch {}
-        const updated = await chrome.tabs.update(targetId, { active: true });
+  const updated = await chrome.tabs.update(targetId, { active: true });
         const winId = updated?.windowId ?? (await (async () => {
           try { const t = await chrome.tabs.get(targetId); return t?.windowId; } catch { return undefined; }
         })());
@@ -69,7 +69,7 @@ export class ActivationService {
       } catch (err) {
         this.deps.diagnostics.setLastError(String(err));
         if (this.deps.debugFlagProvider()) console.error('[activation] attempt failed', stage, err);
-        this.deps.diagnostics.record({ success: false, stage, tabId: targetId, pageIndex, error: String(err) });
+  void this.deps.diagnostics.record({ success: false, stage, tabId: targetId, pageIndex, error: String(err) });
         return false;
       }
     };
@@ -82,7 +82,7 @@ export class ActivationService {
     if (!success) {
       if (this.deps.debugFlagProvider())
         console.warn('[activation] ultimately failed', { targetId, pageIndex });
-      this.deps.diagnostics.record({
+      void this.deps.diagnostics.record({
         success: false,
         stage: 'final',
         tabId: targetId,
@@ -95,7 +95,7 @@ export class ActivationService {
 
   private async finishSuccess(stage: string, tabId: number, pageIndex: number, source: ActivationSource) {
     await this.deps.focusOrchestrator.attemptTabFocus(source, tabId, () => {});
-    this.deps.diagnostics.record({ success: true, stage, tabId, pageIndex });
+  void this.deps.diagnostics.record({ success: true, stage, tabId, pageIndex });
     this.deps.onActivated({ tabId, pageIndex });
     if (this.deps.debugFlagProvider())
       console.debug(`[activation] success stage=${stage} tab=${tabId} page=${pageIndex}`);

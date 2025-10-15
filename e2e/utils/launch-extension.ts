@@ -10,11 +10,15 @@ export interface LaunchedExtension {
 
 async function waitForServiceWorker(context: BrowserContext, timeoutMs = 60000): Promise<Worker> {
   const start = Date.now();
+  let attempt = 0;
   while (Date.now() - start < timeoutMs) {
     const workers = context.serviceWorkers();
     const sw = workers.find((w: Worker) => /background/i.test(w.url()));
     if (sw) return sw;
-    await new Promise(r => setTimeout(r, 250));
+    attempt++;
+    // Exponential backoff with ceiling (250ms * 2^n up to 2s)
+    const delay = Math.min(2000, 250 * Math.pow(2, attempt));
+    await new Promise(r => setTimeout(r, delay));
   }
   throw new Error('Service worker not found for extension within timeout');
 }
@@ -28,7 +32,8 @@ export async function launchExtension(distRelative = 'dist/chrome-tabs-rotator',
     headless: false,
     args: [
       `--disable-extensions-except=${extensionPath}`,
-      `--load-extension=${extensionPath}`
+      `--load-extension=${extensionPath}`,
+      '--no-sandbox'
     ],
     ...extraOptions
   });
@@ -41,23 +46,31 @@ export async function launchExtension(distRelative = 'dist/chrome-tabs-rotator',
   // Attempt to derive extension ID heuristically: background.js exists inside dist root; Chrome assigns ephemeral ID
   // We wait for SW but also try to trigger activation by opening index.html using a guessed ID list (not possible pre-ID),
   // so fallback is still polling. If first wait iteration fails, attempt a forced wake by briefly creating a tab to index.html
-  try {
-    serviceWorker = await waitForServiceWorker(context);
-    const match = serviceWorker.url().match(/chrome-extension:\/\/([a-p]{32})/);
-    if (match) extensionId = match[1];
-  } catch (e) {
-    // Fallback: brute force open potential pages from existing workers (none) – just continue; will retry below.
-  }
-  if (!serviceWorker) {
-    // Force wake attempt: open all pages in the dist folder that could cause activation (index.html)
+  const maxPrimaryAttempts = 3;
+  for (let i = 0; i < maxPrimaryAttempts && !serviceWorker; i++) {
     try {
-      const tmpPage = await context.newPage();
-      // We don't know ID yet; opening index is impossible without ID, so this is a no-op placeholder.
-      await tmpPage.close();
+      serviceWorker = await waitForServiceWorker(context, 15_000);
+      const match = serviceWorker.url().match(/chrome-extension:\/\/([a-p]{32})/);
+      if (match) extensionId = match[1];
+      if (serviceWorker) break;
     } catch {}
-    // Retry wait once more
+    // Wake strategy: open a blank page, then trigger an extension URL fetch using fetch chrome-extension:// which will throw but can prompt load.
     try {
-      serviceWorker = await waitForServiceWorker(context, 15000);
+      const wakePage = await context.newPage();
+      await wakePage.goto('about:blank');
+      // Try to request a known asset via evaluate fetch; ignore errors.
+      await wakePage.evaluate(async () => {
+        for (const p of ['index.html','background.js']) {
+          try { await fetch(`chrome-extension://invalid/${p}`); } catch {}
+        }
+      });
+      await wakePage.close();
+    } catch {}
+  }
+  // Final extended wait if still not found
+  if (!serviceWorker) {
+    try {
+      serviceWorker = await waitForServiceWorker(context, 30_000);
       const match = serviceWorker.url().match(/chrome-extension:\/\/([a-p]{32})/);
       if (match) extensionId = match[1];
     } catch {}

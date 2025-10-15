@@ -37,3 +37,9 @@
 - Diagnostics: Added debug log when auto reinitialization triggers after recovery.
 - Improvement: Restart rebuild now matches surviving tabs by URL.
 - Safety: Anti-spam / invariant enforcement only closes tabs explicitly created by the extension.
+
+## [1.6] - 2025-10-16
+
+- Improved crash / restart tab recovery robustness (grace + watchdog interplay tightened).
+- Added comprehensive Playwright E2E suite.
+- Added transient storage failure resilience and large config scale scenarios.

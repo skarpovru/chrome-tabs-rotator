@@ -1,0 +1,34 @@
+# Normalize text files to LF in repo, allow checkout conversion on Windows if core.autocrlf=true
+* text=auto eol=lf
+
+# Ensure CSS/JS/TS/HTML use LF consistently (prevents churn from Windows editors)
+*.css text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+
+# Treat lockfiles as text but stable
+yarn.lock text eol=lf
+
+# Images and other binaries
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg text eol=lf
+*.woff binary
+*.woff2 binary
+
+# Archives
+*.zip binary
+
+# Keep coverage reports with LF (optional)
+coverage/** text eol=lf

@@ -39,6 +39,9 @@ testem.log
 .nyc_output
 .stylelintcache
 
+# Manual Tailwind Snapshot
+src/styles.tailwind.css
+
 # System files
 .DS_Store
 Thumbs.db

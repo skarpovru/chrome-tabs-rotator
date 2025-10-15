@@ -28,7 +28,8 @@ A lightweight Chrome/Chromium extension that cycles through a list of URLs in se
       - [Combined](#combined)
     - [TypeScript Project Layout (Multi-Config)](#typescript-project-layout-multi-config)
     - [Continuous Integration \& Coverage](#continuous-integration--coverage)
-  - [Styling \& Tailwind v4 Pipeline](#styling--tailwind-v4-pipeline)
+    - [Styling \& Tailwind v4 Pipeline](#styling--tailwind-v4-pipeline)
+    - [Manual Tailwind Snapshot (Optional)](#manual-tailwind-snapshot-optional)
   - [Changelog](#changelog)
   - [Support](#support)
   - [Architecture](#architecture)
@@ -398,6 +399,18 @@ Extending design tokens:
 If your editor flags unknown at-rules, enable a Tailwind-aware extension; the build and Stylelint already accept them.
 
 Remember to exclude `out-tsc/` from instrumentation (instrument sources, not compiled output).
+
+### Manual Tailwind Snapshot (Optional)
+
+The build no longer commits a pre-generated Tailwind bundle. Tailwind directives are expanded at build time from `src/styles.css` (which imports `tailwind.preflight.css`).
+
+When you need to inspect or diff the fully expanded utilities (e.g. after upgrading Tailwind), generate a local snapshot:
+
+```powershell
+yarn tailwind:generate
+```
+
+This writes `src/styles.tailwind.css` (gitignored). Open it to see all emitted layers and utilities.
 
 ---
 

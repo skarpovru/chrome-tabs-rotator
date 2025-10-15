@@ -1,4 +1,5 @@
 /* Tailwind preflight & design tokens extracted for ordering compliance */
+
 /* NOTE: All @import rules must be first (esbuild rule) */
 @import "tailwindcss";
 @source "src/**/*.{html,ts}";

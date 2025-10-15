@@ -1,8 +1,7 @@
 {
   "name": "chrome-tabs-rotator",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "scripts": {
-    "prebuild": "node scripts/build-tailwind.mjs",
     "prepare": "husky",
     "start": "ng build --watch --configuration development",
     "build": "ng build && node scripts/zip.js",
@@ -22,7 +21,8 @@
     "lint:css": "stylelint \"src/**/*.{css,scss}\"",
     "lint:ts": "eslint \"src/**/*.ts\"",
     "lint:ts:strict": "eslint --max-warnings=0 \"src/**/*.ts\"",
-    "lint:ts:fix": "eslint --fix \"src/**/*.ts\""
+    "lint:ts:fix": "eslint --fix \"src/**/*.ts\"",
+    "tailwind:generate": "node scripts/build-tailwind.mjs"
   },
   "private": true,
   "engines": {

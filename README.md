@@ -261,6 +261,22 @@ Key test files:
 
 Helper: `simulateServiceWorkerRestart(context)` in `e2e/utils/launch-extension.ts`.
 
+#### E2E Execution
+
+The E2E Playwright tests are intended for local development only and are not executed in CI (CI builds and runs unit tests + lint + coverage). This avoids flakiness with MV3 extension loading in headless environments.
+
+Run locally (headed Chromium):
+
+```bash
+yarn e2e
+```
+
+Or with the inspector for debugging:
+
+```bash
+yarn e2e:debug
+```
+
 #### Evaluate Harness (`__e2eApi`)
 
 For reliability we bypass `chrome.runtime.sendMessage` and talk directly to the service worker global via `page.serviceWorker().evaluate(...)`. The background script exposes a non-production API object:
@@ -273,7 +289,7 @@ __e2eApi = {
   listTabs(),
   forceHeartbeat(),
   adoptTabs(),
-  crash() // triggers heartbeat + state persist + sets ForcePreserveNextInit then chrome.runtime.reload()
+  // crash() was replaced by simulateServiceWorkerRestart(context) harness helper for reliability (MV3 reload detection is flaky headless)
 }
 ```
 

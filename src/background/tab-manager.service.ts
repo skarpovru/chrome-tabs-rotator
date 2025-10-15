@@ -44,7 +44,14 @@ export class TabManagerService {
     try {
       this.creatingTabs.add(tabConfig);
       console.debug('[tab-manager] createTab begin', { existingPrimary: tabConfig.tabId, preload: tabConfig.nextTabId, url: tabConfig.page.url, active: tabConfig.active });
-      const tab = await chrome.tabs.create({ url: tabConfig.page.url, active: tabConfig.active, windowId: this.windowId });
+      let tab;
+      try {
+        tab = await chrome.tabs.create({ url: tabConfig.page.url, active: tabConfig.active, windowId: this.windowId });
+      } catch (e) {
+        try { (this as any).__lastCreateError = String(e); } catch {}
+        console.error('[tab-manager] createTab chrome.tabs.create failed', e);
+        throw e;
+      }
       if (tabConfig.tabId > 0) { tabConfig.nextTabId = tab.id!; } else { tabConfig.tabId = tab.id!; tabConfig.tabIdReady = true; }
       if (this.windowId == null && tab.windowId != null) this.windowId = tab.windowId;
       await track(tab.id!);

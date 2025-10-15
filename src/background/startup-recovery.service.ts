@@ -45,6 +45,15 @@ export class StartupRecoveryService {
       }));
     } catch {}
     const rotationState = storedState || new RotationState();
+    // If rotating, set a force preserve flag so first initialize after restore adopts tabs instead of recreating.
+    if (rotationState.isRotating) {
+      try {
+        const disable = await this.storage.get<boolean>(StorageKeys.DisableAutoPreserveNextInit);
+        if (!disable) {
+          await this.storage.set({ [StorageKeys.ForcePreserveNextInit]: true });
+        }
+      } catch {}
+    }
     const idx = Number(currentIndex ?? 0);
     return { rotationState, currentIndex: idx, debugActivationLogging: debugFlag, windowId: windowIdRef.windowId };
   }
@@ -79,6 +88,16 @@ export class StartupRecoveryService {
         } catch {}
       }
       if ((expectedPages > 0 && aliveCount < expectedPages) || !urlCoverageOk) {
+        try {
+          (rotationState as any).__resumeReason = {
+            at: Date.now(),
+            expectedPages,
+            aliveCount,
+            urlCoverageOk,
+            trackedCount: tracked.length,
+            reason: 'alive-or-coverage-mismatch'
+          };
+        } catch {}
         return { reinitNeeded: true };
       }
       const alarms = await chrome.alarms.getAll();
@@ -96,6 +115,7 @@ export class StartupRecoveryService {
       return { reinitNeeded: false };
     } catch (e) {
       console.error('[startup] rescheduleIfNeeded failed', e, safeRuntimeLastError());
+      try { (rotationState as any).__resumeReason = { at: Date.now(), error: String(e) }; } catch {}
       return { reinitNeeded: false };
     }
   }

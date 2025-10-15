@@ -15,4 +15,6 @@ export enum StorageKeys {
   PreserveHeartbeatMaxAgeSeconds = 'preserveHeartbeatMaxAgeSeconds', // user-configurable max age threshold
   InitializationError = 'initializationError', // last initialization error message
   InitializationErrorMeta = 'initializationErrorMeta', // JSON with { at:number, stack?:string }
+  ForcePreserveNextInit = 'forcePreserveNextInit', // e2e / crash recovery flag to force initialize({preserveExisting:true}) once
+  DisableAutoPreserveNextInit = 'disableAutoPreserveNextInit', // e2e flag to prevent auto-preserve for negative tests
 }

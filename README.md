@@ -212,6 +212,98 @@ Minimal example with advanced keys:
 
 ## Development
 
+### End-to-End (E2E) Crash / Preservation Test
+
+#### Negative (Non-Preserve) Scenario
+
+We also test the inverse: when auto-preserve is explicitly disabled we expect the simulated restart to recreate rotation tabs (new tab IDs). The spec `e2e/tests/non-preserve-reload.spec.ts` calls:
+
+```ts
+__e2eApi.disableAutoPreserve();
+// then invokes simulateServiceWorkerRestart(context)
+```
+
+Negative test support API:
+
+| Method | Purpose |
+|--------|---------|
+| `disableAutoPreserve()` | Sets `DisableAutoPreserveNextInit` so next init does not preserve existing tabs |
+
+Preserve logic summary:
+
+| Storage flag | Effect |
+|--------------|--------|
+| `forcePreserveNextInit` | Internal flag: if true (and disable flag not set) next `initialize()` uses `preserveExisting` |
+| `disableAutoPreserveNextInit` | Internal flag set by `disableAutoPreserve()`; next init will not preserve tabs |
+
+In production builds (`NODE_ENV=production`) the entire `__e2eApi` block is stripped by the webpack `DefinePlugin` guard (`__E2E_TESTING__` becomes false), reducing bundle surface area.
+
+Playwright exercises a full extension lifecycle, including a simulated MV3 service worker restart ("crash") while preserving existing rotation tabs. Real MV3 runtime reload detection in headless Chromium is unreliable; the test harness uses `simulateServiceWorkerRestart(context)` to re-run `rotationService.initialize` with the appropriate preservation option instead of relying on a new Worker instance.
+
+Scripts:
+
+| Command | Purpose |
+|---------|---------|
+| `yarn e2e` | Build extension then run headless Playwright tests |
+| `yarn e2e:headed` | Run tests in headed Chromium |
+| `yarn e2e:debug` | Launch with Playwright inspector (PWDEBUG) |
+
+First time only install the browser (if not already):
+
+```bash
+npx playwright install chromium
+```
+
+Key test files:
+
+- `e2e/tests/crash-recovery.spec.ts`: preserved resume scenario
+- `e2e/tests/non-preserve-reload.spec.ts`: non-preserve negative scenario
+
+Helper: `simulateServiceWorkerRestart(context)` in `e2e/utils/launch-extension.ts`.
+
+#### Evaluate Harness (`__e2eApi`)
+
+For reliability we bypass `chrome.runtime.sendMessage` and talk directly to the service worker global via `page.serviceWorker().evaluate(...)`. The background script exposes a non-production API object:
+
+```ts
+__e2eApi = {
+  startWithConfig(config),
+  getDiagnostics(),
+  getState(),
+  listTabs(),
+  forceHeartbeat(),
+  adoptTabs(),
+  crash() // triggers heartbeat + state persist + sets ForcePreserveNextInit then chrome.runtime.reload()
+}
+```
+
+`ForcePreserveNextInit` is a storage flag that causes the next `initialize()` call after a worker reload to adopt existing tab IDs instead of recreating tabs. The crash recovery test asserts that tab IDs survive across a simulated reload.
+
+#### Adding New E2E Scenarios
+
+1. Create a spec in `e2e/tests/*.spec.ts`.
+2. Launch via one of the scripts above.
+3. Use `serviceWorker.evaluate` to call into `__e2eApi`.
+
+#### Troubleshooting
+
+| Symptom | Tip |
+|---------|-----|
+| Test hangs waiting for rotation | Ensure `delaySeconds >= 3` (validator) and config uses `StorageKeys.LocalConfig`. |
+| Tabs not preserved after crash | Confirm `forceHeartbeat()`, `adoptTabs()`, then `crash()` were invoked; check `resumeReason` in diagnostics. |
+| SW not ready | Open popup `chrome-extension://<id>/index.html` or poll for `__e2eApi`. |
+
+### Type Checking
+
+Run a full multi-target type check:
+
+```bash
+yarn typecheck
+```
+
+This validates app code (`tsconfig.app.json`), background code (`tsconfig.background.json`), and harness (`tsconfig.harness.json`). E2E tests compile via Playwright + their own tsconfig (`tsconfig.e2e.json`).
+
+
 Requirements: **Node.js ≥ 18**, **npm** and **yarn**.
 
 1. Install dependencies

@@ -22,7 +22,12 @@
     "lint:ts": "eslint \"src/**/*.ts\"",
     "lint:ts:strict": "eslint --max-warnings=0 \"src/**/*.ts\"",
     "lint:ts:fix": "eslint --fix \"src/**/*.ts\"",
-    "tailwind:generate": "node scripts/build-tailwind.mjs"
+    "tailwind:generate": "node scripts/build-tailwind.mjs",
+    "e2e:build": "ng build",
+    "e2e": "yarn e2e:build && playwright test",
+    "e2e:headed": "yarn e2e:build && playwright test --headed",
+    "e2e:debug": "yarn e2e:build && PWDEBUG=1 playwright test --headed",
+    "e2e:install-browsers": "npx playwright install chromium"
   },
   "private": true,
   "engines": {
@@ -56,9 +61,10 @@
     "@angular/compiler-cli": "20.3.4",
     "@tailwindcss/forms": "0.5.10",
     "@types/file-saver": "2.0.7",
-    "@types/jasmine": "5.1.9",
+    "@types/jasmine": "5.1.10",
     "@types/lodash": "4.17.20",
     "@types/node": "24.7.2",
+    "@playwright/test": "1.56.0",
     "archiver": "7.0.1",
     "chrome-types": "0.1.383",
     "concurrently": "9.2.1",

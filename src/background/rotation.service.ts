@@ -265,7 +265,20 @@ export class RotationService {
       // Clear all leftover reload:* alarms via scheduler helper
       await this.scheduler.clearAllReloads();
 
-      const preserve = !!opts?.preserveExisting;
+      // Determine preservation: explicit opt OR forced by flag (consumed once)
+      let preserve = !!opts?.preserveExisting;
+      if (!preserve) {
+        try {
+          const force = await this.storage.get<boolean>(StorageKeys.ForcePreserveNextInit);
+          const disable = await this.storage.get<boolean>(StorageKeys.DisableAutoPreserveNextInit);
+          if (force) {
+            preserve = !disable;
+            // consume flag
+            await this.storage.set({ [StorageKeys.ForcePreserveNextInit]: false });
+            if (disable) { await this.storage.set({ [StorageKeys.DisableAutoPreserveNextInit]: false }); }
+          }
+        } catch {}
+      }
       if (this.isRotating && !preserve) {
         await this.stopRotation();
       } else if (this.isRotating && preserve) {
@@ -1067,6 +1080,7 @@ export class RotationService {
   private async createTabs(configData: ConfigData): Promise<void> {
     console.log('[rotator] Creating tabs:', configData);
     if (!configData?.pages?.length) return;
+    const diag: any = { pages: configData.pages.length, attempts: [], startedAt: Date.now() };
     await this.tabManager.createTabs(
       configData,
       async (id: number) => {
@@ -1081,12 +1095,14 @@ export class RotationService {
           lastActivatedTabId: this.lastActivatedTabId,
           rotationCycle: this.rotationCycle,
         });
+        diag.attempts.push({ trackedId: id, time: Date.now() });
       },
       async (t: TabConfig) => await this.tabLifecycle.waitForInitialLoad(t)
     );
     this.tabsConfig = this.tabManager.tabsConfig;
     if (this.windowId == null && this.tabManager.window != null)
       this.windowId = this.tabManager.window;
+    try { (this as any).__lastCreateTabsDiag = diag; } catch {}
   }
 
   /**

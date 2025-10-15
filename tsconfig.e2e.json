@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "types": ["node", "@playwright/test"],
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "outDir": "dist/e2e"
+  },
+  "include": ["e2e/**/*.ts"],
+  "exclude": ["node_modules"]
+}

@@ -4,7 +4,8 @@
 const tsProjectConfigs = [
   './tsconfig.app.json',
   './tsconfig.background.json',
-  './tsconfig.harness.json'
+  './tsconfig.harness.json',
+  './tsconfig.e2e.json'
 ];
 
 /** @type {import('eslint').Linter.FlatConfig[]} */

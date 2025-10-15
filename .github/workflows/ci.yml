@@ -43,6 +43,14 @@ jobs:
       - name: UI tests (coverage)
         run: yarn test:ui:coverage
 
+      - name: Install Playwright browsers (Node 22 only)
+        if: startsWith(matrix.node, '22.')
+        run: yarn e2e:install-browsers
+
+      - name: E2E tests (Node 22 only)
+        if: startsWith(matrix.node, '22.')
+        run: yarn e2e
+
       - name: Upload coverage artifacts
         if: always()
         uses: actions/upload-artifact@v4

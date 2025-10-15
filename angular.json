@@ -47,7 +47,7 @@
               }
             },
             "customWebpackConfig": {
-              "path": "./scripts/custom-webpack.config.ts"
+              "path": "./scripts/custom-webpack.config.cjs"
             }
           },
           "configurations": {

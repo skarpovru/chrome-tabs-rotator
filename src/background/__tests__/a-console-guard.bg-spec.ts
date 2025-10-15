@@ -5,7 +5,9 @@ describe('global console guard', () => {
     /RotationStateRepository\.save failed/i,
     /storage\] (get|getMany|set|remove) failed/i,
     /Failed to set toolbar icon/i,
-    /Failed to initialize rotation:/i
+    /Failed to initialize rotation:/i,
+    /createTab chrome\.tabs\.create failed/i,
+    /Failed to create placeholder tab at index/i
   ];
   let originalError: (...args:any[])=>void;
   beforeAll(() => {

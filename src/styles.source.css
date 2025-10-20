@@ -1,0 +1,35 @@
+/* Source stylesheet (authoring). Tailwind directives and tokens live in `tailwind.preflight.css`.
+ * This file defines custom @utility blocks and base app styles. It is transformed into
+ * a snapshot at build time via `yarn tailwind:generate` producing `styles.tailwind.css`.
+ */
+/* stylelint-disable-next-line comment-empty-line-before */
+/* Import preflight (source/theme/plugin/utilities) */
+@import "./tailwind.preflight.css";
+
+/* Custom utilities ported from v3 extend */
+@utility animate-spin-slow {
+  animation: spin 3s linear infinite;
+}
+
+@utility flex-0 {
+  flex: 0 0 auto;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+  width: 780px; /* max: 800px */
+  overflow: hidden; /* Prevent scrolling */
+}
+
+/* Hide the arrows for number inputs */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

@@ -3,3 +3,4 @@ coverage/
 out-tsc/
 **/*.d.ts
 .stylelintcache
+src/styles.tailwind.css

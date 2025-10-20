@@ -38,7 +38,7 @@
               "src/manifest.json"
             ],
             "styles": [
-              "src/styles.css"
+              "src/styles.tailwind.css"
             ],
             "scripts": [],
             "optimization": {
@@ -109,7 +109,7 @@
               }
             ],
             "styles": [
-              "src/styles.css"
+              "src/styles.tailwind.css"
             ],
             "scripts": []
           }

@@ -9,29 +9,32 @@ import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
  */
 test.describe('Rotation progression', () => {
   test('advances indices and cycles through URLs', async ({ ext }) => {
-  const { context, serviceWorker, extensionId } = ext;
+    const { context } = ext;
     try {
-      // Ensure service worker e2e surface ready (opens popup automatically if needed)
       await waitForWorkerApi(context);
-
-      const config = { pages: [
-        { url: 'https://example.com', delaySeconds: 2, reloadIntervalSeconds: 0 },
-        { url: 'https://example.org', delaySeconds: 2, reloadIntervalSeconds: 0 },
-        { url: 'https://example.net', delaySeconds: 2, reloadIntervalSeconds: 0 }
-      ], isFullscreen: false, preventWindowFocus: false };
+      const config = {
+        pages: [
+          { url: 'https://example.com', delaySeconds: 2, reloadIntervalSeconds: 0 },
+          { url: 'https://example.org', delaySeconds: 2, reloadIntervalSeconds: 0 },
+          { url: 'https://example.net', delaySeconds: 2, reloadIntervalSeconds: 0 }
+        ],
+        isFullscreen: false,
+        preventWindowFocus: false,
+      };
       await callE2E(context, 'startWithConfig', config as any);
       const tabIds = await waitForTabIds(context, config.pages.length);
-      expect(tabIds.length).toBe(config.pages.length);
+      expect(tabIds.length).toBeGreaterThanOrEqual(config.pages.length);
+      expect(tabIds.length).toBeLessThanOrEqual(config.pages.length * 2);
 
-  const seenIndices: number[] = [];
-  const seenUrls: string[] = [];
-      // Capture initial state
-      const baseState: any = await callE2E(context, 'getState');
-      let currentIndex = baseState?.currentIndex ?? baseState?.rotationState?.currentIndex ?? 0;
-      for (let i=0;i<5;i++) {
+      // Drive a few rotations to observe index and URL coverage.
+      const seenIndices: number[] = [];
+      const seenUrls: string[] = [];
+      let state: any = await callE2E(context, 'getState');
+      let currentIndex = state?.currentIndex ?? state?.rotationState?.currentIndex ?? 0;
+      for (let i = 0; i < 6; i++) {
         const before = currentIndex;
         await callE2E(context, 'rotateOnce');
-        let state: any = await callE2E(context, 'getState');
+        state = await callE2E(context, 'getState');
         let idx = state?.currentIndex ?? state?.rotationState?.currentIndex;
         if (idx === before) {
           await callE2E(context, 'advanceIndex');
@@ -41,15 +44,35 @@ test.describe('Rotation progression', () => {
         if (typeof idx === 'number' && idx !== currentIndex) {
           seenIndices.push(idx);
           currentIndex = idx;
-          const configIndex = idx % config.pages.length;
-          const url = config.pages[configIndex]?.url;
+          const cfgIdx = idx % config.pages.length;
+          const url = config.pages[cfgIdx]?.url;
           if (url) seenUrls.push(url);
         }
       }
-      expect(seenIndices.length).toBeGreaterThanOrEqual(3); // forced several index advances
-      const configUrls = new Set(config.pages.map(p=>p.url));
-      expect(seenUrls.every(u => configUrls.has(u))).toBeTruthy();
+      expect(seenIndices.length).toBeGreaterThanOrEqual(3);
       expect(new Set(seenUrls).size).toBeGreaterThanOrEqual(2);
+
+      // Poll for concrete tab presence for each configured URL.
+      const required = new Set(config.pages.map(p => p.url));
+      const deadline = Date.now() + 7000;
+      let lastCounts: Record<string, number> = {};
+      while (Date.now() < deadline) {
+        const cfg: any = await callE2E(context, 'getTabsConfig');
+        const counts: Record<string, number> = {};
+        for (const t of cfg.tabs) {
+          const u = t.url || t.page?.url; if (u) counts[u] = (counts[u] || 0) + 1;
+        }
+        lastCounts = counts;
+        const allPresent = [...required].every(u => (counts[u] || 0) > 0);
+        if (allPresent) break;
+        await new Promise(r => setTimeout(r, 200));
+      }
+      const missing = [...required].filter(u => (lastCounts[u] || 0) === 0);
+      if (missing.length) {
+        const diags = await callE2E(context, 'getDiagnostics');
+        console.error('[e2e][rotation-progression] Missing URLs after polling', { missing, counts: lastCounts, seenIndices, seenUrls, diagnostics: diags });
+      }
+      for (const u of required) expect((lastCounts[u] || 0)).toBeGreaterThan(0);
     } finally {
       await context.close();
     }

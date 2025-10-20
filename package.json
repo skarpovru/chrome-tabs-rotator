@@ -3,7 +3,7 @@
   "version": "1.6.0",
   "scripts": {
     "start": "ng build --watch --configuration development",
-    "build": "ng build && node scripts/zip.js",
+  "build": "yarn tailwind:generate && ng build && node scripts/zip.js",
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.background.json --noEmit && tsc -p tsconfig.harness.json --noEmit && tsc -p tsconfig.tools.json --noEmit",
     "test:bg:build": "tsc -p tsconfig.background.spec.json",
     "test:bg": "yarn run test:bg:build && jasmine --config=jasmine.background.json",

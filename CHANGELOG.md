@@ -38,8 +38,9 @@
 - Improvement: Restart rebuild now matches surviving tabs by URL.
 - Safety: Anti-spam / invariant enforcement only closes tabs explicitly created by the extension.
 
-## [1.6] - 2025-10-16
+## [1.6] - 2025-10-20
 
 - Improved crash / restart tab recovery robustness (grace + watchdog interplay tightened).
+- Enforced the tabs order.
 - Added comprehensive Playwright E2E suite.
 - Added transient storage failure resilience and large config scale scenarios.

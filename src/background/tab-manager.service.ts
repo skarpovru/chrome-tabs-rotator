@@ -66,13 +66,15 @@ export class TabManagerService {
     this.tabsConfig = new TabsConfig();
     if (!config.pages?.length) return;
     console.debug('[tab-manager] createTabs start pages=', config.pages.length);
-    await Promise.all(config.pages.map(async (page, idx) => {
+    // Sequential creation to preserve defined config order deterministically (prevents Promise.all race reordering)
+    for (let idx = 0; idx < config.pages.length; idx++) {
+      const page = config.pages[idx];
       const tabCfg = new TabConfig({ page, active: idx === 0 });
       const created = await this.createTab(tabCfg, track);
       this.tabsConfig.tabs.push(created);
       await waitForLoad(created);
       console.debug('[tab-manager] createTabs page ready', { idx, tabId: created.tabId, nextTabId: created.nextTabId, primaryReady: created.tabIdReady, preloadReady: created.nextTabIdReady });
-    }));
+    }
     console.debug('[tab-manager] createTabs complete totalTabs=', this.tabsConfig.tabs.length);
   }
 

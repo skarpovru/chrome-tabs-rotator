@@ -1,7 +1,7 @@
 /**
  * Manual Tailwind snapshot generator.
  *
- * This script expands Tailwind v4 directives from `src/styles.css` (which itself
+ * This script expands Tailwind v4 directives from `src/styles.source.css` (which itself
  * imports `tailwind.preflight.css`) into a fully generated CSS artifact
  * written to `src/styles.tailwind.css`.
  *
@@ -20,7 +20,7 @@ import postcss from 'postcss';
 import tailwind from '@tailwindcss/postcss';
 
 const cwd = process.cwd();
-const inputPath = path.resolve(cwd, 'src/styles.css');
+const inputPath = path.resolve(cwd, 'src/styles.source.css');
 const outputPath = path.resolve(cwd, 'src/styles.tailwind.css');
 
 try {

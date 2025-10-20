@@ -43,6 +43,23 @@ export class TabConfig {
    */
   reloadTimer?: number | ReturnType<typeof setInterval>;
 
+  /**
+   * Internal one-shot flag: when true, the next preload warming cycle should skip
+   * creating a new preload tab for this page. Used after promoting an existing
+   * preload to primary so we don't immediately recreate another preload in the
+   * same rotation tick (which complicates promotion tests and can add churn).
+   */
+  skipNextPreload?: boolean;
+
+  /** Timestamp (ms since epoch) when a preload->primary promotion occurred. Used to suppress immediate redundant preloads. */
+  lastPromotionAt?: number;
+
+  /** If true the page is in error state and temporarily skipped in rotation until a successful load clears it. */
+  suspended?: boolean;
+
+  /** Timestamp of last handled navigation error (ms since epoch) for throttling duplicate error events. */
+  lastErrorAt?: number;
+
   constructor(init?: Partial<TabConfig>) {
     Object.assign(this, init);
   }

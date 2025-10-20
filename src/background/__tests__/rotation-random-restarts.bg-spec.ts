@@ -41,6 +41,10 @@ describe('RotationService rapid restart & preservation stress', () => {
           }
           const tab: FakeTab = { id: nextId++, url: opts.url, windowId: 1, active: !!opts.active };
             createdTabs.push(tab); return tab; },
+        update: async (id:number, _opts:any) => {
+          const t = createdTabs.find(t => t.id === id); if (t) t.active = true; return t || { id, url: PAGE_URL, windowId: 1, active: true };
+        },
+        highlight: async (_info:any) => {},
         remove: async (ids: number|number[]) => {
           const arr = Array.isArray(ids) ? ids : [ids];
             for (const id of arr) removed.push(id);

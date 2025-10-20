@@ -507,7 +507,7 @@ Core files:
 | File | Purpose |
 |------|---------|
 | `src/tailwind.preflight.css` | Contains all Tailwind directives: `@source`, `@theme` tokens, `@import "tailwindcss"`, `@plugin`, `@tailwind utilities`. |
-| `src/styles.css` | Imports the preflight file first, then declares custom `@utility` classes and app base styles. |
+| `src/styles.source.css` | Authoring source: imports preflight then declares custom `@utility` classes and app base styles. Snapshot expands this. |
 
 Key directives:
 
@@ -530,7 +530,7 @@ yarn lint:css
 Extending design tokens:
 
 1. Edit the `@theme` block in `src/tailwind.preflight.css`.
-2. Add any new custom utility via `@utility` in `src/styles.css`.
+2. Add any new custom utility via `@utility` in `src/styles.source.css`.
 3. Re-run `yarn start` (watch) or `yarn build` to ensure new classes generate.
 
 If your editor flags unknown at-rules, enable a Tailwind-aware extension; the build and Stylelint already accept them.
@@ -539,7 +539,7 @@ Remember to exclude `out-tsc/` from instrumentation (instrument sources, not com
 
 ### Manual Tailwind Snapshot (Optional)
 
-The build no longer commits a pre-generated Tailwind bundle. Tailwind directives are expanded at build time from `src/styles.css` (which imports `tailwind.preflight.css`).
+The build uses a pre-generated Tailwind snapshot to ensure deterministic utilities. Directives are expanded by the prebuild step from `src/styles.source.css` (which imports `tailwind.preflight.css`) into `src/styles.tailwind.css`, which Angular consumes.
 
 When you need to inspect or diff the fully expanded utilities (e.g. after upgrading Tailwind), generate a local snapshot:
 
@@ -547,7 +547,7 @@ When you need to inspect or diff the fully expanded utilities (e.g. after upgrad
 yarn tailwind:generate
 ```
 
-This writes `src/styles.tailwind.css` (gitignored). Open it to see all emitted layers and utilities.
+This writes `src/styles.tailwind.css` (gitignored & lint-ignored). Open it to see all emitted layers and utilities. Do not edit the snapshot directly—edit `styles.source.css` and re-run.
 
 ---
 

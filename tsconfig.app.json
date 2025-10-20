@@ -9,7 +9,7 @@
   "include": [
     "src/app/**/*.ts",
     "src/main.ts",
-    "src/styles.css",
+  "src/styles.source.css",
     "src/index.html",
     "src/background/background.ts",
     "src/background/**/*.d.ts",

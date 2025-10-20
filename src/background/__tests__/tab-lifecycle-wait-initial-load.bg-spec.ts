@@ -48,9 +48,9 @@ describe('TabLifecycleService.waitForInitialLoad', () => {
     const timeout = 120; // short timeout for test
     const start = Date.now();
     await svc.waitForInitialLoad(tabCfg, timeout);
-    const duration = Date.now() - start;
-    // Expect at least the timeout elapsed (allow slight scheduling delay)
-    expect(duration).toBeGreaterThanOrEqual(timeout);
+  const duration = Date.now() - start;
+  // Expect approximately the timeout elapsed (allow Node timer early resolution jitter ~5ms)
+  expect(duration + 10).toBeGreaterThanOrEqual(timeout);
     // Should not have marked readiness since no event fired
     expect(tabCfg.tabIdReady).toBeFalse();
   });

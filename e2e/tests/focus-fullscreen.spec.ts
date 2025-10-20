@@ -23,14 +23,18 @@ test.describe('Focus orchestration + fullscreen', () => {
   await waitForWorkerApi(context);
 
     await callApi(context, 'startWithConfig', sampleConfig(true));
-    // Force at least one rotation to capture activation history.
-    await callApi(context, 'rotateOnce');
+    // Force some rotations to capture activation history.
+    for (let i=0;i<3;i++) { await callApi(context, 'rotateOnce'); }
 
-    // Retrieve activation history
-    const hist = await callApi(context, 'getActivationHistory');
-    expect(hist.ok).toBeTruthy();
-    // Expect at least one activation or fullscreen attempt record.
-    expect((hist.history || []).length).toBeGreaterThan(0);
+    // Poll for activation history (may be deferred until preload promotion).
+    let hist: any; let populated = false;
+    for (let i=0;i<8;i++) {
+      hist = await callApi(context, 'getActivationHistory');
+      if ((hist.history||[]).length > 0) { populated = true; break; }
+      await new Promise(r=>setTimeout(r, 250));
+    }
+    expect(hist?.ok).toBeTruthy();
+    expect(populated).toBeTruthy();
 
     // Diagnostics should expose lastAttempt; use getDiagnostics for richer data
     const diags = await callApi(context, 'getDiagnostics');
@@ -42,13 +46,15 @@ test.describe('Focus orchestration + fullscreen', () => {
   await waitForWorkerApi(context);
 
     await callApi(context, 'startWithConfig', sampleConfig(true, true));
-    await callApi(context, 'rotateOnce');
-
-    const hist = await callApi(context, 'getActivationHistory');
-    expect(hist.ok).toBeTruthy();
-    // Find a fullscreen record suppressed-by-config
-  // Presence of any activation history entry is sufficient; suppression may not record explicit error in some builds.
-  expect((hist.history || []).length).toBeGreaterThan(0);
+    for (let i=0;i<3;i++) { await callApi(context, 'rotateOnce'); }
+    let hist: any; let populated = false;
+    for (let i=0;i<8;i++) {
+      hist = await callApi(context, 'getActivationHistory');
+      if ((hist.history||[]).length > 0) { populated = true; break; }
+      await new Promise(r=>setTimeout(r, 250));
+    }
+    expect(hist?.ok).toBeTruthy();
+    expect(populated).toBeTruthy();
   });
 
   test('debugActivationLogging flag persists and exposes verbose diagnostics', async ({ ext }) => {

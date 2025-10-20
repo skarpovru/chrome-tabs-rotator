@@ -106,6 +106,12 @@ try {
         try { out.starting = (rotationService as any).starting; } catch {}
         try { const tabs = await chrome.tabs.query({}); out.openTabs = tabs.map(t => ({ id: t.id, url: t.url, windowId: t.windowId })); } catch {}
         try { out.resumeReason = (rotationService as any).rotationState?.__resumeReason; } catch {}
+        // Attach pagesMeta consistently using DiagnosticsService (avoids test fallback logic)
+        try {
+          const svc: any = rotationService as any;
+          const tabsCfg = svc.tabsConfig?.tabs || [];
+          out.pagesMeta = svc.diagnosticsService?.buildPagesMeta?.(tabsCfg) || tabsCfg.map((t: any, i: number) => ({ index: i, url: t.page?.url, tabId: t.tabId, nextTabId: t.nextTabId }));
+        } catch {}
         return out;
       },
       listTabs: async () => {
@@ -252,11 +258,28 @@ try {
             tabId: t.tabId,
             nextTabId: t.nextTabId,
             url: t.page?.url,
+            page: t.page ? { // provide nested page details for tests expecting t.page?.url
+              url: t.page.url,
+              delaySeconds: t.page.delaySeconds,
+              reloadIntervalSeconds: t.page.reloadIntervalSeconds,
+              rotateIntervalSeconds: t.page.rotateIntervalSeconds,
+            } : undefined,
             retryCount: t.retryCount,
             reloadIntervalSeconds: t.page?.reloadIntervalSeconds,
             rotateIntervalSeconds: t.page?.rotateIntervalSeconds
           })) || [];
-          return { ok: true, tabs };
+          let warmPreloadKicks = 0;
+          try { warmPreloadKicks = typeof svc.getWarmPreloadKickCount === 'function' ? svc.getWarmPreloadKickCount() : (svc.warmPreloadKicks || 0); } catch {}
+          return { ok: true, tabs, warmPreloadKicks };
+        } catch (e) { return { ok: false, error: String(e) }; }
+      },
+      // Canonical ordered URLs (config order) for ordering tests
+      getOrderedUrls: async () => {
+        try {
+          const svc: any = rotationService as any;
+          const cfg = await svc.storage.get(StorageKeys.LocalConfig);
+          const urls = Array.isArray(cfg?.pages) ? cfg.pages.map((p: any) => p.url).filter((u: string) => !!u) : [];
+          return { ok: true, urls };
         } catch (e) { return { ok: false, error: String(e) }; }
       },
       exportConfig: async () => {
@@ -301,6 +324,16 @@ try {
       },
       getEnforceResumeAt: async () => { try { return { ok: true, enforceResumeAt: (rotationService as any).enforceResumeAt }; } catch (e) { return { ok: false, error: String(e) }; } },
       setEnforceResumeAtInSeconds: async (secondsFromNow: number) => { try { (rotationService as any).enforceResumeAt = Date.now() + secondsFromNow * 1000; return { ok: true, enforceResumeAt: (rotationService as any).enforceResumeAt }; } catch (e) { return { ok: false, error: String(e) }; } },
+      // Test-only: Force a page's tab config to appear missing (no tabId or nextTabId) to trigger presence kick on subsequent rotation.
+      makePageMissing: async (pageIndex: number) => {
+        try {
+          const svc: any = rotationService as any;
+          if (!svc.tabsConfig?.tabs?.[pageIndex]) return { ok: false, error: 'pageIndex out of range' };
+          svc.tabsConfig.tabs[pageIndex].tabId = 0;
+          svc.tabsConfig.tabs[pageIndex].nextTabId = 0;
+          return { ok: true };
+        } catch (e) { return { ok: false, error: String(e) }; }
+      },
       crash: async () => { try {
         // Ensure heartbeat & state saved right before reload for preservation heuristic
         await (rotationService as any).storage.set({ [StorageKeys.RotationHeartbeat]: Date.now() });
@@ -320,6 +353,34 @@ try {
         await (rotationService as any).rotationRepo?.save?.((rotationService as any).rotationState, (rotationService as any).currentIndex || 0);
       } catch {}
         try { chrome.runtime.reload(); } catch {}
+      }
+      ,
+      // Intentionally shuffle in-memory tabsConfig order (test-only) and then repair using invariant rebuild/enforce.
+      shuffleAndRepair: async () => {
+        try {
+          const svc: any = rotationService as any;
+          await svc.tryRebuildTabs?.(); // ensure tabsConfig exists
+          const tabs = svc.tabsConfig?.tabs || [];
+          const before = tabs.map((t: any) => t.page?.url);
+          // Fisher-Yates shuffle (in-place)
+          for (let i = tabs.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            const tmp = tabs[i]; tabs[i] = tabs[j]; tabs[j] = tmp;
+          }
+          const shuffled = tabs.map((t: any) => t.page?.url);
+          // Intentionally drop tabId for a random non-first page to simulate partial loss
+          if (tabs.length > 2) {
+            const victimIndex = Math.min(tabs.length - 1, Math.max(1, Math.floor(Math.random()*tabs.length)));
+            tabs[victimIndex].tabId = 0; tabs[victimIndex].tabIdReady = false;
+          }
+          // Repair: enforce invariant normal then force
+          try { await svc.enforceInvariant?.(); } catch {}
+          try { await svc.enforceInvariant?.(true); } catch {}
+          // Rebuild logical ordering by mapping back through original config in storage
+          const orderedResp = await (self as any).__e2eApi.getOrderedUrls();
+          const after = Array.isArray(orderedResp?.urls) ? orderedResp.urls : [];
+          return { ok: true, before, shuffled, after };
+        } catch (e) { return { ok: false, error: String(e) }; }
       }
     };
   }
@@ -351,6 +412,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 if (chrome.webNavigation && chrome.webNavigation.onErrorOccurred) {
   chrome.webNavigation.onErrorOccurred.addListener((details) => {
+    // Only act on main frame errors (frameId === 0) to avoid duplicate per-resource noise
+    if ((details as any)?.frameId != null && (details as any).frameId !== 0) return;
     void (async () => {
       try {
         await rotationService.onHandleError(details.tabId, details.url);

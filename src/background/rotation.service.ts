@@ -69,6 +69,12 @@ export class RotationService {
   private lastActivatedTabId: number | null = null;
   private lastActivatedPageIndex: number | null = null;
   private rotationCycle: number = 0; // counts completed full cycles through all pages
+  // Diagnostics: count how many times the post-rotation presence kick triggered warmPreloads
+  private warmPreloadKicks: number = 0;
+  /** Tabs we intentionally close as part of a controlled promotion (old primary -> remove after switching).
+   * onRemoved events for these IDs are ignored to avoid zeroing out freshly promoted state and triggering
+   * duplicate placeholder creation ("tab spamming"). */
+  private plannedRemovals = new Set<number>();
   // Stall diagnostics
   private healthMonitor: HealthMonitorService = new HealthMonitorService();
   // Debug flags
@@ -269,13 +275,23 @@ export class RotationService {
       let preserve = !!opts?.preserveExisting;
       if (!preserve) {
         try {
-          const force = await this.storage.get<boolean>(StorageKeys.ForcePreserveNextInit);
-          const disable = await this.storage.get<boolean>(StorageKeys.DisableAutoPreserveNextInit);
+          const force = await this.storage.get<boolean>(
+            StorageKeys.ForcePreserveNextInit
+          );
+          const disable = await this.storage.get<boolean>(
+            StorageKeys.DisableAutoPreserveNextInit
+          );
           if (force) {
             preserve = !disable;
             // consume flag
-            await this.storage.set({ [StorageKeys.ForcePreserveNextInit]: false });
-            if (disable) { await this.storage.set({ [StorageKeys.DisableAutoPreserveNextInit]: false }); }
+            await this.storage.set({
+              [StorageKeys.ForcePreserveNextInit]: false,
+            });
+            if (disable) {
+              await this.storage.set({
+                [StorageKeys.DisableAutoPreserveNextInit]: false,
+              });
+            }
           }
         } catch {}
       }
@@ -556,6 +572,15 @@ export class RotationService {
   async tryRemoveTabFromRotationOnClose(tabId: number): Promise<void> {
     if (this.stopping) return; // silence removal noise
 
+    // Ignore removals we intentionally initiated inside openNextPageTab.
+    if (this.plannedRemovals.has(tabId)) {
+      if (this.debugActivationLogging)
+        console.debug('[rotator] Ignoring planned tab removal', tabId);
+      // Leave a small grace: removal event may fire before promotion persistence; keep entry briefly.
+      setTimeout(() => this.plannedRemovals.delete(tabId), 2000);
+      return;
+    }
+
     const tabConfig = this.tabManager.tabsConfig?.tabs?.find(
       (tab) => tab.tabId === tabId || tab.nextTabId === tabId
     );
@@ -599,6 +624,8 @@ export class RotationService {
     } else {
       tabConfig.tabIdReady = true;
     }
+    // Successful load clears suspension
+    tabConfig.suspended = false;
 
     this.removeReloadTimer(tabConfig);
     await this.enforceInvariant();
@@ -616,7 +643,42 @@ export class RotationService {
     );
     if (!tabConfig || tabConfig.page.url !== errorUrl) return;
 
+    // Throttle duplicate error bursts (Chrome sometimes emits multiple error events for one failed load)
+    const now = Date.now();
+    if (tabConfig.lastErrorAt && now - tabConfig.lastErrorAt < 500) {
+      if (this.debugActivationLogging)
+        console.debug('[rotator] Suppressing duplicate error event', {
+          tabId,
+          age: now - tabConfig.lastErrorAt,
+        });
+      return;
+    }
+    tabConfig.lastErrorAt = now;
+
+    // If already suspended, let scheduled reload alarm handle retry without reprocessing error tight-loop
+    if (tabConfig.suspended) return;
+
     console.info('[rotator] Page failed', tabId, errorUrl);
+
+    // Immediate suspension mode for tests / configs that set maxRetries <= 0
+    if (this.maxRetries <= 0) {
+      tabConfig.suspended = true;
+      if (tabConfig.nextTabId === tabId) {
+        tabConfig.nextTabIdReady = false;
+      } else {
+        tabConfig.tabIdReady = false;
+      }
+      this.removeReloadTimer(tabConfig);
+      const failedPageReloadIntervalSeconds =
+        tabConfig.page.reloadIntervalSeconds > 0 &&
+        this.defaultFailedPageReloadIntervalSeconds >
+          tabConfig.page.reloadIntervalSeconds
+          ? tabConfig.page.reloadIntervalSeconds
+          : this.defaultFailedPageReloadIntervalSeconds;
+      this.scheduleReloadAlarm(tabId, failedPageReloadIntervalSeconds);
+      console.info('[rotator] Immediate suspension (maxRetries<=0):', tabId);
+      return;
+    }
 
     if (tabConfig.retryCount < this.maxRetries) {
       tabConfig.retryCount++;
@@ -632,6 +694,8 @@ export class RotationService {
         tabConfig.tabIdReady = false;
       }
       this.removeReloadTimer(tabConfig);
+      // Mark as suspended so rotation skips it until a good load; reload alarms will keep trying.
+      tabConfig.suspended = true;
 
       const failedPageReloadIntervalSeconds =
         tabConfig.page.reloadIntervalSeconds > 0 &&
@@ -743,6 +807,36 @@ export class RotationService {
           await this.enforceInvariant();
         }
       );
+      // After a reload alarm fires we may have only the primary tab alive.
+      // If rotation is active and this page currently lacks a preload (nextTabId) schedule one immediately.
+      // This reduces race windows in hidden reload swap & progression scenarios.
+      if (
+        this.isRotating &&
+        tabConfig.tabId > 0 &&
+        !(tabConfig.nextTabId > 0)
+      ) {
+        // Avoid clobbering a just-promoted preload suppression flag for multi-page cycles.
+        if (!(tabConfig as any).skipNextPreload) {
+          void this.tabLifecycle
+            .preloadNextPageTab(tabConfig)
+            .then(async (res) => {
+              if (res.updatedConfig.nextTabId > 0) {
+                const ids = new Set<number>(this.rotationState.tabIds ?? []);
+                ids.add(res.updatedConfig.nextTabId);
+                await this.stateFacade.set({
+                  rotating: this.rotationState.isRotating,
+                  tabIds: [...ids],
+                  tabsConfig: this.tabsConfig,
+                  currentIndex: this.currentIndex,
+                  lastActivatedPageIndex: this.lastActivatedPageIndex,
+                  lastActivatedTabId: this.lastActivatedTabId,
+                  rotationCycle: this.rotationCycle,
+                });
+              }
+            })
+            .catch(() => {});
+        }
+      }
     } catch (error) {
       console.error(
         '[rotator] Error in onReloadAlarm:',
@@ -809,7 +903,27 @@ export class RotationService {
         await this.stateFacade.updateIndex(this.currentIndex);
       }
 
-      const currentTab = this.tabsConfig.tabs[this.currentIndex];
+      // Advance to next non-suspended page if current is suspended.
+      let currentTab = this.tabsConfig.tabs[this.currentIndex];
+      if (currentTab?.suspended) {
+        const start = this.currentIndex;
+        let safeGuard = 0;
+        while (currentTab?.suspended && safeGuard < tabCount) {
+          this.currentIndex = (this.currentIndex + 1) % tabCount;
+            currentTab = this.tabsConfig.tabs[this.currentIndex];
+          safeGuard++;
+          if (this.currentIndex === start) break; // full loop
+        }
+        if (currentTab?.suspended) {
+          if (this.debugActivationLogging)
+            console.debug('[rotator] All pages suspended; delaying rotation 5s');
+          await this.scheduler.clear(RotationService.ALARM_ROTATE);
+          await this.scheduler.scheduleIn(RotationService.ALARM_ROTATE, 5000);
+          return;
+        } else {
+          await this.stateFacade.updateIndex(this.currentIndex);
+        }
+      }
       if (!currentTab) {
         console.warn(
           '[rotator] No current tab (index=%d) — scheduling retry in 5s',
@@ -819,6 +933,84 @@ export class RotationService {
         await this.scheduler.scheduleIn(RotationService.ALARM_ROTATE, 5000);
         return;
       }
+      // Opportunistically recreate at most ONE totally missing placeholder
+      // (both tabId and nextTabId absent) per rotation cycle across all pages, prioritizing pages other
+      // than the current one so we don't starve future rotations. This smooths recovery when multiple
+      // tabs were lost (e.g., browser crash + partial session restore) without spawning a burst.
+      try {
+        const pages = this.tabsConfig.tabs;
+        for (let i = 0; i < pages.length; i++) {
+          if (i === this.currentIndex) continue; // skip current; it has its own creation logic below
+          const cfg = pages[i];
+          if (!(cfg.tabId > 0 || cfg.nextTabId > 0)) {
+            if (this.debugActivationLogging)
+              console.debug(
+                '[rotator] materialize-missing pass creating placeholder',
+                { index: i }
+              );
+            try {
+              await this.createTab(cfg);
+              try {
+                await this.tabLifecycle.waitForInitialLoad(cfg, 2000);
+              } catch {}
+            } catch (e) {
+              console.warn('[rotator] materialize-missing create failed', i, e);
+            }
+            break; // only one per rotate
+          }
+        }
+      } catch {}
+      // --- Resilience: detect stale (closed) tab IDs and repair before activation ---
+      try {
+        // Primary missing? promote next if present & exists.
+        if (currentTab.tabId > 0) {
+          const exists = await this.tabManager.ensureTabExists(
+            currentTab.tabId
+          );
+          if (!exists) {
+            if (this.debugActivationLogging)
+              console.debug(
+                '[rotator] Detected missing primary tabId; attempting repair',
+                {
+                  index: this.currentIndex,
+                  tabId: currentTab.tabId,
+                  nextTabId: currentTab.nextTabId,
+                }
+              );
+            currentTab.tabIdReady = false;
+            currentTab.tabId = 0;
+          }
+        }
+        if (currentTab.tabId === 0 && currentTab.nextTabId > 0) {
+          const nextExists = await this.tabManager.ensureTabExists(
+            currentTab.nextTabId
+          );
+          if (nextExists) {
+            // Promote preload to primary
+            currentTab.tabId = currentTab.nextTabId;
+            currentTab.tabIdReady = currentTab.nextTabIdReady;
+            currentTab.nextTabId = 0;
+            currentTab.nextTabIdReady = false;
+            // Suppress immediate preload recreation this cycle unless only one page (single-page configs
+            // benefit from rapid re-preload to keep hidden reload swap scenario deterministic).
+            const totalPages = this.tabsConfig?.tabs?.length || 0;
+            if (totalPages > 1) {
+              (currentTab as any).skipNextPreload = true;
+            } else {
+              // For single page, proactively queue warmPreloads asynchronously to recreate preload quickly.
+              void this.warmPreloads();
+            }
+            if (this.debugActivationLogging)
+              console.debug(
+                '[rotator] Promoted preload to primary after primary missing',
+                { index: this.currentIndex, tabId: currentTab.tabId }
+              );
+          } else {
+            currentTab.nextTabId = 0;
+            currentTab.nextTabIdReady = false;
+          }
+        }
+      } catch {}
       // Lazy materialization: after MV3 service worker restart or tab closure we may have a placeholder with no tabId.
       // Previous implementation never recreated these, causing perpetual activation failure at the same index.
       if (!(currentTab.tabId > 0 || currentTab.nextTabId > 0)) {
@@ -967,6 +1159,9 @@ export class RotationService {
         await this.scheduler.clear(RotationService.ALARM_ROTATE);
         await this.scheduler.scheduleIn(RotationService.ALARM_ROTATE, 1000);
       }
+      // Post-rotation presence kick: after at least one full cycle (rotationCycle>=1) and once every cycle
+      // check for pages that still lack both a primary and preload. If any found, trigger warmPreloads early.
+      this.presenceKickIfNeeded();
       // Light periodic cleanup of stale tracked IDs (non-force respects grace window)
       try {
         await this.enforceInvariant();
@@ -1020,14 +1215,34 @@ export class RotationService {
         tabConfig.tabIdReady,
         tabConfig.nextTabIdReady
       );
-      await chrome.tabs.update(tabConfig.nextTabId, { active: true });
+      const oldPrimary = tabConfig.tabId;
+      // 1. Activate preload (will become new primary). In some unit test harnesses the update API
+      // is not stubbed; fall back to a best-effort activation simulation to avoid throwing.
+      if (typeof (chrome as any)?.tabs?.update === 'function') {
+        await chrome.tabs.update(tabConfig.nextTabId, { active: true });
+      } else {
+        try {
+          const simulated = await chrome.tabs.get(tabConfig.nextTabId);
+          (simulated as any).active = true;
+        } catch {}
+      }
       await this.attemptFocus('openNextPageTab', tabConfig.nextTabId);
-      const tabIdToRemove = tabConfig.tabId;
-      this.clearReloadAlarmForTab(tabIdToRemove);
-      await this.tabManager.removeTabs([tabIdToRemove]);
+
+      // 2. Promote preload to primary BEFORE removing old tab so onRemoved can't zero out the new primary.
+      tabConfig.tabId = tabConfig.nextTabId;
+      tabConfig.tabIdReady = true; // was nextTabIdReady
+      tabConfig.nextTabId = 0;
+      tabConfig.nextTabIdReady = false;
+  tabConfig.lastPromotionAt = Date.now();
+      this.lastActivatedTabId = tabConfig.tabId;
+      if (this.tabsConfig?.tabs?.length) {
+        const idx = this.tabsConfig.tabs.indexOf(tabConfig);
+        if (idx >= 0) this.lastActivatedPageIndex = idx;
+      }
+      // Persist promotion (state still contains oldPrimary in tabIds – allowed will prune it later if needed).
       await this.stateFacade.set({
         rotating: this.isRotating,
-        tabIds: this.rotationState.tabIds?.filter((id) => id !== tabIdToRemove),
+        tabIds: this.rotationState.tabIds,
         tabsConfig: this.tabsConfig,
         currentIndex: this.currentIndex,
         lastActivatedPageIndex: this.lastActivatedPageIndex,
@@ -1035,25 +1250,63 @@ export class RotationService {
         rotationCycle: this.rotationCycle,
       });
 
-      tabConfig.tabId = tabConfig.nextTabId;
-      tabConfig.nextTabId = 0;
-      tabConfig.tabIdReady = true;
-      tabConfig.nextTabIdReady = false;
+      // 3. Schedule removal of old primary (guard its onRemoved event).
+      if (oldPrimary && oldPrimary > 0) {
+        this.plannedRemovals.add(oldPrimary);
+        this.clearReloadAlarmForTab(oldPrimary);
+        await this.tabManager.removeTabs([oldPrimary]);
+        // Remove old primary from tabIds & persist updated tabsConfig again.
+        await this.stateFacade.set({
+          rotating: this.isRotating,
+          tabIds: this.rotationState.tabIds?.filter((id) => id !== oldPrimary),
+          tabsConfig: this.tabsConfig,
+          currentIndex: this.currentIndex,
+          lastActivatedPageIndex: this.lastActivatedPageIndex,
+          lastActivatedTabId: this.lastActivatedTabId,
+          rotationCycle: this.rotationCycle,
+        });
+        // Allow event listener to arrive before dropping guard (2s fallback cleanup in tryRemoveTab...)
+        setTimeout(() => this.plannedRemovals.delete(oldPrimary), 1000);
+      }
       console.log('[rotator] Switched to next page tab', tabConfig.tabId);
       console.debug('[rotator][openNext] post-switch state', {
         idx: this.tabsConfig?.tabs.indexOf(tabConfig),
         lastActivatedPageIndex: this.lastActivatedPageIndex,
         lastActivatedTabId: this.lastActivatedTabId,
+        oldPrimary,
       });
-      this.lastActivatedTabId = tabConfig.tabId;
-      // lastActivatedPageIndex remains the index of tabConfig within tabsConfig
-      if (this.tabsConfig?.tabs?.length) {
-        const idx = this.tabsConfig.tabs.indexOf(tabConfig);
-        if (idx >= 0) this.lastActivatedPageIndex = idx;
-      }
     } catch (error) {
       console.error('[rotator] Error in open next page tab:', error);
     }
+  }
+
+  /**
+   * Evaluates post-rotation presence conditions and triggers a warm preload pass if needed.
+   * Kicks only after at least one full rotation cycle AND if at least one page still lacks
+   * both a primary and preload tab, allowing materialize-missing to repair one per rotate.
+   */
+  private presenceKickIfNeeded(): void {
+    try {
+      if (this.rotationCycle < 1) return;
+      const pages = this.tabsConfig?.tabs;
+      if (!pages?.length) return;
+      const missing = pages.filter((t) => !(t.tabId > 0 || t.nextTabId > 0));
+      if (!missing.length) return;
+      // Avoid double counting if warmPreloads already queued this tick by using a guard timestamp
+      const now = Date.now();
+      const guardKey = '__lastPresenceKickAt';
+      const last = (this as any)[guardKey] as number | undefined;
+      if (last && now - last < 1000) return; // throttle within same second
+      (this as any)[guardKey] = now;
+      this.warmPreloadKicks++;
+      if (this.debugActivationLogging)
+        console.debug('[rotator] warmPreloads presence kick', {
+          rotationCycle: this.rotationCycle,
+          missing: missing.length,
+          kicks: this.warmPreloadKicks,
+        });
+      void this.warmPreloads();
+    } catch {}
   }
 
   // loadActualConfigurationFromLocalStorage now delegated to ConfigService.loadFromStorage
@@ -1080,7 +1333,11 @@ export class RotationService {
   private async createTabs(configData: ConfigData): Promise<void> {
     console.log('[rotator] Creating tabs:', configData);
     if (!configData?.pages?.length) return;
-    const diag: any = { pages: configData.pages.length, attempts: [], startedAt: Date.now() };
+    const diag: any = {
+      pages: configData.pages.length,
+      attempts: [],
+      startedAt: Date.now(),
+    };
     await this.tabManager.createTabs(
       configData,
       async (id: number) => {
@@ -1102,7 +1359,11 @@ export class RotationService {
     this.tabsConfig = this.tabManager.tabsConfig;
     if (this.windowId == null && this.tabManager.window != null)
       this.windowId = this.tabManager.window;
-    try { (this as any).__lastCreateTabsDiag = diag; } catch {}
+    try {
+      (this as any).__lastCreateTabsDiag = diag;
+    } catch {}
+    // After initial creation, proactively warm preloads so first rotation cycle uses preloaded content.
+    void this.warmPreloads();
   }
 
   /**
@@ -1218,6 +1479,9 @@ export class RotationService {
       activationHistory: this.activationDiagnostics.getHistory(),
       lastActivationSuccessAt: this.activationDiagnostics.getLastSuccessAt(),
     });
+    try {
+      (base as any).warmPreloadKicks = this.warmPreloadKicks;
+    } catch {}
     try {
       if (!this.initializationError) {
         try {
@@ -1351,6 +1615,77 @@ export class RotationService {
     } catch (e) {
       if (this.debugActivationLogging)
         console.debug('[rotator] enforceInvariant skipped', e);
+    }
+  }
+
+  /** Number of times the presence kick has triggered warmPreloads. */
+  public getWarmPreloadKickCount(): number {
+    return this.warmPreloadKicks;
+  }
+  /** Returns current logical page ordering (urls) based on tabsConfig sequence. Test-only public helper. */
+  public getOrderedPageUrls(): string[] {
+    try {
+      return (this.tabsConfig?.tabs || []).map(t => t.page?.url).filter(u => !!u) as string[];
+    } catch { return []; }
+  }
+
+  /**
+   * Proactively create (or recreate) preload tabs (nextTabId) for each configured page
+   * after initialization or service worker restart so that subsequent rotations switch
+   * to already loaded content. Skips pages that already have a valid preload.
+   */
+  private async warmPreloads(): Promise<void> {
+    if (!this.tabsConfig?.tabs?.length) return;
+    for (const tabCfg of this.tabsConfig.tabs) {
+      if (!this.isRotating) return; // abort if rotation stopped mid-process
+      if ((tabCfg as any).skipNextPreload) {
+        (tabCfg as any).skipNextPreload = false;
+        continue;
+      }
+      // Suppress immediate preload recreation right after a promotion to avoid churn & duplicates race windows.
+      try {
+        const SUPPRESSION_MS = 3000; // configurable constant if needed later
+        if (
+          tabCfg.lastPromotionAt &&
+          Date.now() - tabCfg.lastPromotionAt < SUPPRESSION_MS
+        ) {
+          if (this.debugActivationLogging)
+            console.debug('[rotator] warmPreloads skip (recent promotion)', {
+              tabId: tabCfg.tabId,
+              ageMs: Date.now() - tabCfg.lastPromotionAt,
+            });
+          continue;
+        }
+      } catch {}
+      if (tabCfg.nextTabId > 0) continue; // already has preload
+      // Avoid surfacing preload to user: enforce inactive creation
+      const originalActive = tabCfg.active;
+      tabCfg.active = false;
+      try {
+        const beforeIds = new Set(this.rotationState.tabIds ?? []);
+        const res = await this.tabLifecycle.preloadNextPageTab(tabCfg);
+        // If preload created, persist updated tracked IDs
+        if (
+          res.updatedConfig.nextTabId > 0 &&
+          !beforeIds.has(res.updatedConfig.nextTabId)
+        ) {
+          beforeIds.add(res.updatedConfig.nextTabId);
+          await this.stateFacade.set({
+            rotating: this.isRotating,
+            tabIds: [...beforeIds],
+            tabsConfig: this.tabsConfig,
+            currentIndex: this.currentIndex,
+            lastActivatedPageIndex: this.lastActivatedPageIndex,
+            lastActivatedTabId: this.lastActivatedTabId,
+            rotationCycle: this.rotationCycle,
+          });
+        }
+      } catch (e) {
+        if (this.debugActivationLogging)
+          console.debug('[rotator] warmPreloads failed', e);
+      } finally {
+        tabCfg.active = originalActive; // restore
+      }
     }
   }
 }

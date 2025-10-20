@@ -32,6 +32,9 @@ export function installChromeWithStorage(overrides: any = {}) {
     };
   }
   if (!tabs.get) tabs.get = async (id: number) => createdTabs.find(t => t.id === id) || { id, windowId: 1 };
+  if (!tabs.update) tabs.update = async (id: number, _opts: any) => {
+    const t = createdTabs.find(t => t.id === id); if (!t) throw new Error('No tab with id'); return t;
+  };
   if (!tabs.query) tabs.query = async (queryInfo: any) => {
     // Minimal filtering used by tests: windowId & url (string or array). Empty query returns all.
     return createdTabs.filter(t => {

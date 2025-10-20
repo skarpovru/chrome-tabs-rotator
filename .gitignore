@@ -42,6 +42,8 @@ testem.log
 # Manual Tailwind Snapshot
 src/styles.tailwind.css
 
+/test-results
+
 # System files
 .DS_Store
 Thumbs.db

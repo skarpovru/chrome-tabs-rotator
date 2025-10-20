@@ -62,8 +62,9 @@ describe('multi-page warm preload suppression', () => {
     );
     // Allow any pending constructor microtasks to settle
     await new Promise(r=>setTimeout(r,0));
-    const pageA = new TabConfig({ page: { url: 'https://a.test', delaySeconds: 5, reloadIntervalSeconds: 0 } as any });
-    const pageB = new TabConfig({ page: { url: 'https://b.test', delaySeconds: 5, reloadIntervalSeconds: 0 } as any });
+  // Use positive reloadIntervalSeconds so warmPreloads will attempt creation (new gating logic)
+  const pageA = new TabConfig({ page: { url: 'https://a.test', delaySeconds: 5, reloadIntervalSeconds: 60 } as any });
+  const pageB = new TabConfig({ page: { url: 'https://b.test', delaySeconds: 5, reloadIntervalSeconds: 60 } as any });
       const tm = (rotation as any).tabManager;
       tm.tabsConfig.tabs = [];
       for (const p of [pageA, pageB]) {

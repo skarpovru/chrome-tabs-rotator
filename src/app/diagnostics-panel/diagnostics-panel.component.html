@@ -36,6 +36,14 @@
       </button>
       <button
         class="px-3 py-1.5 rounded-sm shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
+        (click)="exportPreloadHistory()"
+        [disabled]="!diags?.preloadDiagnostics?.length"
+        title="Download all preload histories as JSON"
+      >
+        Export History
+      </button>
+      <button
+        class="px-3 py-1.5 rounded-sm shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
         (click)="forceRotate()"
         [disabled]="loading"
         title="Force immediate rotation now"
@@ -220,6 +228,108 @@
       <div *ngIf="d.metrics" class="rounded-sm bg-ghost p-2 col-span-1 md:col-span-2">
         <div class="font-semibold mb-1">Diagnostics Snapshot Metrics</div>
         <pre class="max-h-40 overflow-auto border rounded-sm p-2 bg-white text-xs">{{ d.metrics | json }}</pre>
+      </div>
+      <div *ngIf="d.preloadDiagnostics?.length" class="rounded-sm bg-ghost p-2 col-span-1 md:col-span-2">
+        <div class="font-semibold mb-1">Preload Diagnostics</div>
+        <div *ngIf="preloadAggregations" class="mb-2 text-[11px] border rounded-sm bg-white p-2 grid grid-cols-2 md:grid-cols-6 gap-2">
+          <div><span class="text-gray-600">Pages:</span> {{ preloadAggregations.pages }}</div>
+          <div><span class="text-gray-600">Attempts:</span> {{ preloadAggregations.attempts }}</div>
+          <div><span class="text-gray-600">Promoted:</span> {{ preloadAggregations.promoted }}</div>
+          <div><span class="text-gray-600">Discarded:</span> {{ preloadAggregations.discarded }}</div>
+          <div><span class="text-gray-600">Timeouts:</span> {{ preloadAggregations.timeout }}</div>
+          <div><span class="text-gray-600">Errors:</span> {{ preloadAggregations.error }}</div>
+          <div><span class="text-gray-600">Avg Wait(ms):</span> {{ preloadAggregations.avgWaitMs }}</div>
+          <div><span class="text-gray-600">2xx:</span> {{ preloadAggregations.http2xx }}</div>
+          <div><span class="text-gray-600">4xx:</span> {{ preloadAggregations.http4xx }}</div>
+          <div><span class="text-gray-600">5xx:</span> {{ preloadAggregations.http5xx }}</div>
+          <div><span class="text-gray-600">Net Err:</span> {{ preloadAggregations.httpErrorEvents }}</div>
+          <div><span class="text-gray-600">Success Rate:</span> {{ preloadAggregations.successRate }}%</div>
+        </div>
+        <div class="flex items-center gap-2 mb-2 text-[11px]">
+          <label class="flex items-center gap-1">
+            <input type="radio" name="pf" value="all" [checked]="preloadFilter==='all'" (change)="setPreloadFilter('all')" />
+            <span>All</span>
+          </label>
+          <label class="flex items-center gap-1">
+            <input type="radio" name="pf" value="failures" [checked]="preloadFilter==='failures'" (change)="setPreloadFilter('failures')" />
+            <span>Failures only</span>
+          </label>
+          <span class="ml-auto text-gray-600">Showing {{ filteredPreloads().length }} / {{ d.preloadDiagnostics.length }} pages</span>
+        </div>
+        <div class="max-h-72 overflow-auto border rounded-sm bg-white">
+          <table class="table-auto w-full text-[11px]">
+            <thead class="bg-gray-100 sticky top-0">
+              <tr>
+                <th class="px-1 py-0.5 text-left">Idx</th>
+                <th class="px-1 py-0.5 text-left">Primary</th>
+                <th class="px-1 py-0.5 text-left">Preload</th>
+                <th class="px-1 py-0.5 text-left">Class</th>
+                <th class="px-1 py-0.5 text-left">Created</th>
+                <th class="px-1 py-0.5 text-left">WaitMs</th>
+                <th class="px-1 py-0.5 text-left">Outcome</th>
+                <th class="px-1 py-0.5 text-left">OnUpd</th>
+                <th class="px-1 py-0.5 text-left">Statuses</th>
+                <th class="px-1 py-0.5 text-left">BackoffMs</th>
+                <th class="px-1 py-0.5 text-left">Failures</th>
+                <th class="px-1 py-0.5 text-left">NextAllowed</th>
+                  <th class="px-1 py-0.5 text-left">Hist(1)</th>
+                <th class="px-1 py-0.5 text-left">Success%</th>
+                <th class="px-1 py-0.5 text-left">Expand</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let p of filteredPreloads()" [class.bg-green-50]="p.classification==='promoted'" [class.bg-yellow-50]="p.classification==='in-progress'" [class.bg-red-50]="p.classification==='timeout' || p.classification==='error'">
+                <td class="px-1 py-0.5">{{ p.index }}</td>
+                <td class="px-1 py-0.5">{{ p.tabId || '-' }}</td>
+                <td class="px-1 py-0.5">{{ p.nextTabId || '-' }}</td>
+                <td class="px-1 py-0.5">{{ p.classification }}</td>
+                <td class="px-1 py-0.5">{{ p.preloadCreationAt || '-' }}</td>
+                <td class="px-1 py-0.5">{{ p.lastPreloadWaitMs || '-' }}</td>
+                <td class="px-1 py-0.5">{{ p.lastPreloadWaitOutcome || '-' }}</td>
+                <td class="px-1 py-0.5">{{ p.preloadOnUpdatedCount }}</td>
+                <td class="px-1 py-0.5 truncate max-w-[140px]" [title]="p.preloadStatusesSeen?.join(', ')">
+                  <ng-container *ngFor="let s of p.preloadStatusesSeen">
+                    <span class="inline-block mr-0.5 mb-0.5" [ngClass]="statusClass(s)">{{ s }}</span>
+                  </ng-container>
+                </td>
+                <td class="px-1 py-0.5">{{ p.currentPreloadBackoffMs }}</td>
+                <td class="px-1 py-0.5">{{ p.preloadFailureCount }}</td>
+                <td class="px-1 py-0.5">{{ p.nextPreloadAllowedAt || '-' }}</td>
+                <td class="px-1 py-0.5 truncate max-w-[200px]" [title]="p.history?.length ? ('Reason: ' + (p.history[0].reason || '-') + '\nOutcome: ' + (p.history[0].outcome || '-') + '\nHTTP: ' + (p.history[0].httpStatus ?? '?') + (p.history[0].httpError ? (' ' + p.history[0].httpError) : '') + '\nWaitMs: ' + (p.history[0].waitMs ?? '-') + '\nOnUpdated: ' + (p.history[0].onUpdatedCount ?? '-') + '\nStatuses: ' + (p.history[0].statuses?.join('>') || '-')) : ''">
+                  <span *ngIf="p.history?.length" [ngClass]="outcomeClass(p.history[0])">{{ p.history[0].reason }}({{ p.history[0].outcome }},{{ p.history[0].httpStatus ?? '?' }})</span>
+                  <span *ngIf="!p.history?.length">-</span>
+                </td>
+                <td class="px-1 py-0.5">
+                  <span class="px-1 py-0.5 rounded text-[10px]" [ngClass]="p.successRate >= 80 ? 'bg-green-200 text-green-900' : (p.successRate >= 50 ? 'bg-yellow-200 text-yellow-900' : 'bg-red-200 text-red-900')">{{ p.successRate ?? 0 }}%</span>
+                </td>
+                <td class="px-1 py-0.5">
+                  <button class="text-xs underline" (click)="toggleHistory(p.index)">{{ expandedHistory.has(p.index) ? 'Hide' : 'Show' }}</button>
+                </td>
+              </tr>
+              <tr *ngFor="let p of filteredPreloads()" [hidden]="!expandedHistory.has(p.index)">
+                <td colspan="14" class="px-2 py-1 bg-gray-50">
+                  <div *ngIf="p.history?.length; else noHist" class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div *ngFor="let h of p.history; let i = index" class="border rounded-sm p-1 text-[10px] bg-white">
+                      <div class="flex flex-wrap gap-1 items-center mb-1">
+                        <span class="font-semibold">#{{ i+1 }}</span>
+                        <span [ngClass]="outcomeClass(h)">{{ h.reason || h.outcome }}</span>
+                        <span class="text-gray-600">HTTP: {{ h.httpStatus ?? '?' }}<ng-container *ngIf="h.httpError"> {{ h.httpError }}</ng-container></span>
+                        <span class="text-gray-600">Wait: {{ h.waitMs ?? '-' }}ms</span>
+                        <span class="text-gray-600">Upd: {{ h.onUpdatedCount ?? 0 }}</span>
+                      </div>
+                      <div class="flex flex-wrap gap-1">
+                        <ng-container *ngFor="let s of h.statuses">
+                          <span class="inline-block" [ngClass]="statusClass(s)">{{ s }}</span>
+                        </ng-container>
+                      </div>
+                    </div>
+                  </div>
+                  <ng-template #noHist><div class="text-[10px] italic text-gray-500">No history entries.</div></ng-template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>

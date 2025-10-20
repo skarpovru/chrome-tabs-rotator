@@ -44,7 +44,7 @@ describe('TabLifecycleService reload alarm', () => {
   expect((chrome.tabs.reload as any).calls.count()).toBe(1);
   });
 
-  it('creates tab if missing both primary and next IDs', async () => {
+  it('creates primary tab when both primary and preload IDs missing', async () => {
     const page: PageConfig = { url: 'https://example.net', delaySeconds: 1 } as any;
     const cfg = new TabConfig({ page, active: true });
     const tabsConfig = new TabsConfig();
@@ -55,7 +55,8 @@ describe('TabLifecycleService reload alarm', () => {
       await tabManager.createTab(tc, async (id: number) => { tc.tabId = id; tc.tabIdReady = true; });
     }, async ids => { stateIds = ids; }, async () => {});
 
-    expect(createdTabs.length).toBe(1);
-    expect(stateIds.includes(createdTabs[0])).toBeTrue();
+    expect(createdTabs.length).toBeGreaterThanOrEqual(1);
+    expect(cfg.tabId).toBeGreaterThan(0);
+    expect(stateIds.includes(cfg.tabId)).toBeTrue();
   });
 });

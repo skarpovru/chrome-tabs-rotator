@@ -1,13 +1,14 @@
 import { expect } from '@playwright/test';
 import { test } from '../utils/extension-fixtures';
 import { callE2E as callApi } from '../utils/call-e2e-api';
-import { waitForWorkerApi } from '../utils/reliability-helpers';
+import { waitForWorkerApi, awaitStableTab } from '../utils/reliability-helpers';
 
 function configWithFailing(firstFails = true) {
+  // Use two reachable example.com pages; harness simulateError will induce failure paths deterministically.
   return {
     pages: [
       { url: 'https://example.com/ok', delaySeconds: 2, reloadIntervalSeconds: 0 },
-      { url: firstFails ? 'https://nonexistent.invalid/boom' : 'https://example.com/also', delaySeconds: 2, reloadIntervalSeconds: 0 }
+      { url: firstFails ? 'https://example.com/fail' : 'https://example.com/also', delaySeconds: 2, reloadIntervalSeconds: 0 }
     ],
     isFullscreen: false,
     preventWindowFocus: false
@@ -19,24 +20,32 @@ function configWithFailing(firstFails = true) {
 test.describe('Error recovery retry path', () => {
   test('retry then fallback after maxRetries exceeded', async ({ ext }) => {
   const { context } = ext;
-  await waitForWorkerApi(context);
+    await waitForWorkerApi(context);
+    // Ensure deterministic retry path: force maxRetries = 1
+    await callApi(context, 'setMaxRetries', 1);
     await callApi(context, 'startWithConfig', configWithFailing());
 
     // Capture initial tabs config
     let tc1 = await callApi(context, 'getTabsConfig');
     expect(tc1.ok).toBeTruthy();
-    const failingUrl = 'https://nonexistent.invalid/boom';
+  const failingUrl = 'https://example.com/fail';
     const failingEntry = tc1.tabs.find((t: any) => t.url === failingUrl);
     expect(failingEntry).toBeDefined();
 
-    // Simulate first error => should increment retryCount and possibly create nextTabId
-    await callApi(context, 'simulateError', failingUrl);
+  // Wait for stable initial load (primary ready, retryCount == 0)
+  await awaitStableTab(context, failingUrl); // initial stable load with retryCount 0
+  // Small grace to ensure lastErrorAt throttle window passed
+  await new Promise(r => setTimeout(r, 600));
+  // Simulate first error => should increment retryCount and possibly create nextTabId
+  await callApi(context, 'simulateError', failingUrl);
     let tc2 = await callApi(context, 'getTabsConfig');
     const afterFirst = tc2.tabs.find((t: any) => t.url === failingUrl);
     expect(afterFirst.retryCount).toBeGreaterThanOrEqual(1);
 
-    // Simulate second error => exceed maxRetries (1) triggers failure path
-    await callApi(context, 'simulateError', failingUrl);
+  // Wait for tab to be stable again (after retry) allowing retryCount>=1
+  await awaitStableTab(context, failingUrl, 6000, { allowRetry: true });
+  // Simulate second error => exceed maxRetries (1) triggers failure path
+  await callApi(context, 'simulateError', failingUrl);
     let tc3 = await callApi(context, 'getTabsConfig');
     const afterSecond = tc3.tabs.find((t: any) => t.url === failingUrl);
     // Depending on implementation, retryCount may reset or cap; assert not increasing further beyond a small bound

@@ -77,3 +77,29 @@ export async function waitForTabIds(context: BrowserContext, minCount: number, t
   }
   throw new Error('Timeout waiting for tabIds >= ' + minCount);
 }
+
+/**
+ * Waits until the page entry for the given URL has a stable primary tab (tabIdReady true),
+ * with retryCount still 0 (no prior error-triggered retries), avoiding error throttling suppression
+ * in onHandleError. Returns the tab config snapshot or throws on timeout.
+ */
+export async function awaitStableTab(context: BrowserContext, url: string, timeoutMs = 6000, opts: { allowRetry?: boolean } = {}): Promise<any> {
+  const deadline = Date.now() + timeoutMs;
+  let lastCfg: any = null;
+  while (Date.now() < deadline) {
+    try {
+      const tc = await callApi(context, 'getTabsConfig');
+      const entry = tc?.tabs?.find((t: any) => t.url === url);
+      if (entry) {
+        lastCfg = entry;
+        // Primary readiness: prefer explicit tabIdReady flag; fallback to ready.primary if present
+        const primaryReady = entry.tabId > 0 && (entry.tabIdReady === true || entry.ready?.primary === true);
+        // When allowRetry is true, accept retryCount>0 so long as page not suspended
+        const noPreErrorReq = opts.allowRetry ? !entry.suspended : ((entry.retryCount || 0) === 0);
+        if (primaryReady && noPreErrorReq) return entry;
+      }
+    } catch {/* ignore transient */}
+    await new Promise(r => setTimeout(r, 250));
+  }
+  throw new Error('Timeout awaiting stable tab for ' + url + ' last=' + JSON.stringify(lastCfg));
+}

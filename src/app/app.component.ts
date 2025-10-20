@@ -7,6 +7,7 @@ import {
   OnDestroy,
 } from '@angular/core';
 import { ConfigEditorComponent } from './config-editor/config-editor.component';
+import { safeRuntimeSend } from '../shared';
 import { ConfigLoaderComponent } from './config-loader/config-loader.component';
 import { DiagnosticsPanelComponent } from './diagnostics-panel/diagnostics-panel.component';
 import { ConfigData, RemoteSettings, StorageKeys } from './models';
@@ -58,7 +59,10 @@ export class AppComponent implements OnInit, OnDestroy {
     });
 
     // Handshake to inform background that UI is active for gated emissions
-  try { void chrome.runtime.sendMessage({ action: 'uiHello' }); } catch {}
+  try {
+    // Suppress benign lastError if background not yet ready; no need for verbose logging here.
+    safeRuntimeSend({ action: 'uiHello' });
+  } catch {}
 
   // Countdown provided by CountdownStateService (storage-backed)
     this.countdownSub = this.countdownState.state$.subscribe((state) => {
@@ -74,7 +78,7 @@ export class AppComponent implements OnInit, OnDestroy {
       return;
     }
     this.isRotationDisabled = true;
-    chrome.runtime.sendMessage({ action: 'rotateTabs' }, undefined, () => {
+    safeRuntimeSend({ action: 'rotateTabs' }, undefined, () => {
       this.isRotating = true;
       this.isRotationDisabled = false;
       this.cdr.detectChanges();
@@ -86,7 +90,7 @@ export class AppComponent implements OnInit, OnDestroy {
       return;
     }
     this.isRotationDisabled = true;
-    chrome.runtime.sendMessage({ action: 'stopRotation' }, undefined, () => {
+    safeRuntimeSend({ action: 'stopRotation' }, undefined, () => {
       this.isRotating = false;
       this.isRotationDisabled = false;
       this.cdr.detectChanges();
@@ -204,7 +208,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private queryRotationState() {
-    chrome.runtime.sendMessage(
+    safeRuntimeSend(
       { action: 'getRotationState' },
       undefined,
       (response: any) => {

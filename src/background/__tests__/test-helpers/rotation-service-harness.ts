@@ -46,6 +46,14 @@ export function installChromeWithStorage(overrides: any = {}) {
       return true;
     });
   };
+  // Provide a reload stub that leaves the tab in place; tests can hook into this for readiness simulation.
+  if (!tabs.reload) tabs.reload = async (id: number) => {
+    const t = createdTabs.find(ct => ct.id === id);
+    if (t) {
+      // Mark as reloaded by toggling a flag; tests may inspect or trigger onUpdated manually.
+      (t as any).__reloadedAt = Date.now();
+    }
+  };
   if (!tabs.remove) tabs.remove = async (ids: number | number[]) => {
     const arr = Array.isArray(ids) ? ids : [ids];
     for (const id of arr) {
@@ -53,7 +61,16 @@ export function installChromeWithStorage(overrides: any = {}) {
       if (i >= 0) createdTabs.splice(i, 1);
     }
   };
-  if (!tabs.onUpdated) tabs.onUpdated = { addListener: () => {}, removeListener: () => {} };
+  // Maintain an internal listener registry so tests can simulate completion events.
+  if (!tabs.onUpdated) {
+    const listeners: Function[] = [];
+    tabs.onUpdated = {
+      addListener: (fn: any) => { listeners.push(fn); },
+      removeListener: (fn: any) => { const i = listeners.indexOf(fn); if (i>=0) listeners.splice(i,1); },
+      // Test helper to fire update events
+      __fireUpdated: (tabId: number, changeInfo: any) => { for (const l of [...listeners]) { try { l(tabId, changeInfo, createdTabs.find(t=>t.id===tabId)||{}); } catch {} } }
+    } as any;
+  }
 
   (globalThis as any).chrome = {
     ...existing,
@@ -100,5 +117,15 @@ export function createRotationServiceHarness(opts: RotationHarnessOptions = {}) 
     new StorageService(0),
     new MetricsService()
   );
-  return { service };
+  // Helper: wait until a tabConfig's tabId changes (promotion) and nextTabId consumed.
+  async function waitForPromotion(tabConfig: any, timeoutMs = 2000): Promise<boolean> {
+    const startId = tabConfig.tabId;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (tabConfig.tabId !== startId && tabConfig.nextTabId === 0) return true;
+      await new Promise(r => setTimeout(r, 25));
+    }
+    return false;
+  }
+  return { service, waitForPromotion };
 }

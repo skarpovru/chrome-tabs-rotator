@@ -1,5 +1,6 @@
 import { ActivationDiagnosticsService } from './activation-diagnostics.service';
 import { TabsConfig } from '../app/models';
+import { safeRuntimeSend } from '../shared';
 
 /**
  * Handles countdown ticking, badge updates, storage persistence and broadcasting countdown messages.
@@ -33,9 +34,7 @@ export class CountdownService {
         if ((popupOpen || uiActive) && (now - this.lastMessageAt >= 2000 || seconds <= 1)) {
           if (seconds !== this.lastSentSecond) {
             try {
-              chrome.runtime.sendMessage({ kind: 'countdown', seconds, nextAt: when }, undefined, () => {
-                const _ = (chrome as any)?.runtime?.lastError; // swallow benign errors
-              });
+              safeRuntimeSend({ kind: 'countdown', seconds, nextAt: when });
             } catch {}
             this.lastSentSecond = seconds;
             this.lastMessageAt = now;

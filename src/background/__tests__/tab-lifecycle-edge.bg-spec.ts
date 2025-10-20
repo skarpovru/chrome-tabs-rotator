@@ -14,7 +14,8 @@ describe('TabLifecycleService edge cases', () => {
       tabs: {
         reload: jasmine.createSpy('reload'),
         create: jasmine.createSpy('create').and.callFake(async (opts: any) => { const id = 500 + created.length; created.push(id); return { id, windowId: 1, url: opts.url }; }),
-        get: jasmine.createSpy('get').and.callFake(async (id:number)=>({ id, windowId:1 })),
+        get: jasmine.createSpy('get').and.callFake(async (id:number)=>({ id, windowId:1, active: true })),
+        remove: jasmine.createSpy('remove'),
         onUpdated: { addListener: () => {}, removeListener: () => {} }
       }
     };
@@ -45,7 +46,7 @@ describe('TabLifecycleService edge cases', () => {
     expect(saved).toContain(created[0]);
   });
 
-  it('reloads preload tab when available', async () => {
+  it('promotes ready preload instead of reloading it', async () => {
     const cfg = new TabsConfig();
     const page: PageConfig = { url: 'https://pre', delaySeconds: 1 } as any;
     const tabCfg = new TabConfig({ page, active: true });
@@ -53,6 +54,10 @@ describe('TabLifecycleService edge cases', () => {
     tabCfg.nextTabId = 701; tabCfg.nextTabIdReady = true;
     cfg.tabs.push(tabCfg);
     await lifecycle.handleReloadAlarm(701, cfg, async () => {}, async () => {}, async () => {});
-    expect((chrome.tabs.reload as any).calls.first().args[0]).toBe(701);
+    // Expect promotion
+    expect(tabCfg.tabId).toBe(701);
+    expect(tabCfg.nextTabId).toBe(0);
+    expect((chrome.tabs.reload as any).calls.count()).toBe(0);
+    expect((chrome.tabs.remove as any).calls.count()).toBeGreaterThanOrEqual(1);
   });
 });

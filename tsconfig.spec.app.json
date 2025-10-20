@@ -11,6 +11,7 @@
   "include": [
     "src/test.ts",
     "src/app/**/*.spec.ts",
+    "src/shared/**/*.spec.ts",
     "src/app/**/*.d.ts",
     "src/types/**/*.d.ts"
   ],

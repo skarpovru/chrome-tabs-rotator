@@ -69,8 +69,6 @@ export class RotationService {
   private lastActivatedTabId: number | null = null;
   private lastActivatedPageIndex: number | null = null;
   private rotationCycle: number = 0; // counts completed full cycles through all pages
-  // Diagnostics: count how many times the post-rotation presence kick triggered warmPreloads
-  private warmPreloadKicks: number = 0;
   /** Tabs we intentionally close as part of a controlled promotion (old primary -> remove after switching).
    * onRemoved events for these IDs are ignored to avoid zeroing out freshly promoted state and triggering
    * duplicate placeholder creation ("tab spamming"). */
@@ -95,6 +93,10 @@ export class RotationService {
 
   get isRotating(): boolean {
     return this.rotationState?.isRotating || false;
+  }
+
+  isStarting(): boolean {
+    return this.starting;
   }
 
   constructor(
@@ -149,6 +151,8 @@ export class RotationService {
         // IMPORTANT: Do NOT replace the rotationState object reference after the facade has been created.
         // stateFacade holds a captured reference to the original instance passed into its constructor.
         // Reassigning (this.rotationState = r.rotationState) causes a divergence: the RotationService getter
+        // starts reading from the NEW object (with default isRotating=false) while the facade continues
+        // mutating the OLD object. Reassigning (this.rotationState = r.rotationState) causes a divergence: the RotationService getter
         // starts reading from the NEW object (with default isRotating=false) while the facade continues
         // mutating the OLD object. This led to a race where startRotationProcess() set rotating=true via
         // the facade, then the async restore() completed and overwrote this.rotationState with a fresh
@@ -643,6 +647,17 @@ export class RotationService {
     );
     if (!tabConfig || tabConfig.page.url !== errorUrl) return;
 
+    // Test-only simplified retry path (isolates increment & suspension without side-effects).
+    if ((this as any).__testForceSimpleRetry) {
+      if (tabConfig.suspended) return;
+      if (tabConfig.retryCount < this.maxRetries) {
+        tabConfig.retryCount++;
+      } else {
+        tabConfig.suspended = true;
+      }
+      return;
+    }
+
     // Throttle duplicate error bursts (Chrome sometimes emits multiple error events for one failed load)
     const now = Date.now();
     if (tabConfig.lastErrorAt && now - tabConfig.lastErrorAt < 500) {
@@ -711,6 +726,11 @@ export class RotationService {
         tabId
       );
     }
+  }
+
+  /** Test-only helper: override retry limit safely. */
+  public __setMaxRetriesForTest(val: number) {
+    this.maxRetries = val;
   }
 
   public async onRotateAlarm(): Promise<void> {
@@ -807,36 +827,6 @@ export class RotationService {
           await this.enforceInvariant();
         }
       );
-      // After a reload alarm fires we may have only the primary tab alive.
-      // If rotation is active and this page currently lacks a preload (nextTabId) schedule one immediately.
-      // This reduces race windows in hidden reload swap & progression scenarios.
-      if (
-        this.isRotating &&
-        tabConfig.tabId > 0 &&
-        !(tabConfig.nextTabId > 0)
-      ) {
-        // Avoid clobbering a just-promoted preload suppression flag for multi-page cycles.
-        if (!(tabConfig as any).skipNextPreload) {
-          void this.tabLifecycle
-            .preloadNextPageTab(tabConfig)
-            .then(async (res) => {
-              if (res.updatedConfig.nextTabId > 0) {
-                const ids = new Set<number>(this.rotationState.tabIds ?? []);
-                ids.add(res.updatedConfig.nextTabId);
-                await this.stateFacade.set({
-                  rotating: this.rotationState.isRotating,
-                  tabIds: [...ids],
-                  tabsConfig: this.tabsConfig,
-                  currentIndex: this.currentIndex,
-                  lastActivatedPageIndex: this.lastActivatedPageIndex,
-                  lastActivatedTabId: this.lastActivatedTabId,
-                  rotationCycle: this.rotationCycle,
-                });
-              }
-            })
-            .catch(() => {});
-        }
-      }
     } catch (error) {
       console.error(
         '[rotator] Error in onReloadAlarm:',
@@ -910,13 +900,15 @@ export class RotationService {
         let safeGuard = 0;
         while (currentTab?.suspended && safeGuard < tabCount) {
           this.currentIndex = (this.currentIndex + 1) % tabCount;
-            currentTab = this.tabsConfig.tabs[this.currentIndex];
+          currentTab = this.tabsConfig.tabs[this.currentIndex];
           safeGuard++;
           if (this.currentIndex === start) break; // full loop
         }
         if (currentTab?.suspended) {
           if (this.debugActivationLogging)
-            console.debug('[rotator] All pages suspended; delaying rotation 5s');
+            console.debug(
+              '[rotator] All pages suspended; delaying rotation 5s'
+            );
           await this.scheduler.clear(RotationService.ALARM_ROTATE);
           await this.scheduler.scheduleIn(RotationService.ALARM_ROTATE, 5000);
           return;
@@ -1159,9 +1151,7 @@ export class RotationService {
         await this.scheduler.clear(RotationService.ALARM_ROTATE);
         await this.scheduler.scheduleIn(RotationService.ALARM_ROTATE, 1000);
       }
-      // Post-rotation presence kick: after at least one full cycle (rotationCycle>=1) and once every cycle
-      // check for pages that still lack both a primary and preload. If any found, trigger warmPreloads early.
-      this.presenceKickIfNeeded();
+      // Preload strategy: only create via reload alarms or explicit warmPreloads passes.
       // Light periodic cleanup of stale tracked IDs (non-force respects grace window)
       try {
         await this.enforceInvariant();
@@ -1233,7 +1223,7 @@ export class RotationService {
       tabConfig.tabIdReady = true; // was nextTabIdReady
       tabConfig.nextTabId = 0;
       tabConfig.nextTabIdReady = false;
-  tabConfig.lastPromotionAt = Date.now();
+      tabConfig.lastPromotionAt = Date.now();
       this.lastActivatedTabId = tabConfig.tabId;
       if (this.tabsConfig?.tabs?.length) {
         const idx = this.tabsConfig.tabs.indexOf(tabConfig);
@@ -1279,37 +1269,6 @@ export class RotationService {
       console.error('[rotator] Error in open next page tab:', error);
     }
   }
-
-  /**
-   * Evaluates post-rotation presence conditions and triggers a warm preload pass if needed.
-   * Kicks only after at least one full rotation cycle AND if at least one page still lacks
-   * both a primary and preload tab, allowing materialize-missing to repair one per rotate.
-   */
-  private presenceKickIfNeeded(): void {
-    try {
-      if (this.rotationCycle < 1) return;
-      const pages = this.tabsConfig?.tabs;
-      if (!pages?.length) return;
-      const missing = pages.filter((t) => !(t.tabId > 0 || t.nextTabId > 0));
-      if (!missing.length) return;
-      // Avoid double counting if warmPreloads already queued this tick by using a guard timestamp
-      const now = Date.now();
-      const guardKey = '__lastPresenceKickAt';
-      const last = (this as any)[guardKey] as number | undefined;
-      if (last && now - last < 1000) return; // throttle within same second
-      (this as any)[guardKey] = now;
-      this.warmPreloadKicks++;
-      if (this.debugActivationLogging)
-        console.debug('[rotator] warmPreloads presence kick', {
-          rotationCycle: this.rotationCycle,
-          missing: missing.length,
-          kicks: this.warmPreloadKicks,
-        });
-      void this.warmPreloads();
-    } catch {}
-  }
-
-  // loadActualConfigurationFromLocalStorage now delegated to ConfigService.loadFromStorage
 
   private async createTab(tabConfig: TabConfig): Promise<TabConfig> {
     return this.tabLifecycle.createPrimaryTab(tabConfig, async (cfg) => {
@@ -1362,8 +1321,8 @@ export class RotationService {
     try {
       (this as any).__lastCreateTabsDiag = diag;
     } catch {}
-    // After initial creation, proactively warm preloads so first rotation cycle uses preloaded content.
-    void this.warmPreloads();
+    // Preloads are deferred: initial tab creation only makes primaries. Preloads are created lazily
+    // via reload alarms or explicit warmPreloads() passes; no presence kick / enablePreloads flag.
   }
 
   /**
@@ -1480,8 +1439,44 @@ export class RotationService {
       lastActivationSuccessAt: this.activationDiagnostics.getLastSuccessAt(),
     });
     try {
-      (base as any).warmPreloadKicks = this.warmPreloadKicks;
+      (base as any).preloadDiagnostics = (this.tabsConfig?.tabs || []).map(
+        (t, i) => ({
+          index: i,
+            tabId: t.tabId,
+            nextTabId: t.nextTabId,
+            preloadCreationAt: t.preloadCreationAt || null,
+            preloadOnUpdatedCount: t.preloadOnUpdatedCount || 0,
+            preloadCompleteObserved: !!t.preloadCompleteObserved,
+            lastPreloadWaitMs: t.lastPreloadWaitMs ?? null,
+            lastPreloadWaitOutcome: t.lastPreloadWaitOutcome || null,
+            preloadStatusesSeen: t.preloadStatusesSeen || [],
+            preloadFailureCount: t.preloadFailureCount || 0,
+            currentPreloadBackoffMs: t.currentPreloadBackoffMs || 0,
+            nextPreloadAllowedAt: t.nextPreloadAllowedAt || null,
+            primaryInitialWaitMs: t.primaryInitialWaitMs ?? null,
+            primaryInitialWaitOutcome: t.primaryInitialWaitOutcome || null,
+            history: (t.preloadHistory || []).slice(0, t.preloadHistoryMax || 5),
+            classification: ((): string => {
+              try {
+                // Reuse logic similar to TabLifecycleService.classifyPreloadFailure; inline to avoid import tangle.
+                if (!t.preloadCreationAt) {
+                  if (t.preloadCompleteObserved && t.nextTabId === 0) return 'promoted';
+                  if (t.preloadCompleteObserved) return 'complete-no-timestamp';
+                  if ((t.preloadOnUpdatedCount ?? 0) === 0) return 'none';
+                  return 'in-progress';
+                }
+                if (t.preloadCompleteObserved && t.nextTabId === 0) return 'promoted';
+                if (t.preloadCompleteObserved) return 'complete';
+                if (t.lastPreloadWaitOutcome === 'timeout') return 'timeout';
+                if (t.lastPreloadWaitOutcome === 'error') return 'error';
+                if ((t.preloadOnUpdatedCount ?? 0) === 0) return 'no-events';
+                return 'in-progress';
+              } catch { return 'unknown'; }
+            })()
+        })
+      );
     } catch {}
+    // warmPreloadKicks removed
     try {
       if (!this.initializationError) {
         try {
@@ -1617,16 +1612,16 @@ export class RotationService {
         console.debug('[rotator] enforceInvariant skipped', e);
     }
   }
-
-  /** Number of times the presence kick has triggered warmPreloads. */
-  public getWarmPreloadKickCount(): number {
-    return this.warmPreloadKicks;
-  }
+  // Removed getWarmPreloadKickCount()
   /** Returns current logical page ordering (urls) based on tabsConfig sequence. Test-only public helper. */
   public getOrderedPageUrls(): string[] {
     try {
-      return (this.tabsConfig?.tabs || []).map(t => t.page?.url).filter(u => !!u) as string[];
-    } catch { return []; }
+      return (this.tabsConfig?.tabs || [])
+        .map((t) => t.page?.url)
+        .filter((u) => !!u) as string[];
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -1636,35 +1631,77 @@ export class RotationService {
    */
   private async warmPreloads(): Promise<void> {
     if (!this.tabsConfig?.tabs?.length) return;
-    for (const tabCfg of this.tabsConfig.tabs) {
-      if (!this.isRotating) return; // abort if rotation stopped mid-process
+    const pages = this.tabsConfig.tabs;
+    const startTs = Date.now();
+    let created = 0;
+    let skippedRecentPromotion = 0;
+    let skippedExisting = 0;
+    let skippedNoInterval = 0;
+    if (this.debugActivationLogging) {
+      console.debug('[rotator][warmPreloads] start', {
+        total: pages.length,
+        rotating: this.isRotating,
+        cycle: this.rotationCycle,
+      });
+    }
+    for (const tabCfg of pages) {
+      if (!this.isRotating) {
+        if (this.debugActivationLogging)
+          console.debug('[rotator][warmPreloads] abort: rotation stopped');
+        return;
+      }
       if ((tabCfg as any).skipNextPreload) {
         (tabCfg as any).skipNextPreload = false;
+        if (this.debugActivationLogging)
+          console.debug('[rotator][warmPreloads] skip flag skipNextPreload', {
+            url: tabCfg.page?.url,
+          });
         continue;
       }
-      // Suppress immediate preload recreation right after a promotion to avoid churn & duplicates race windows.
+      const reloadInterval = Number(tabCfg.page?.reloadIntervalSeconds) || 0;
+      if (reloadInterval <= 0) {
+        // Gate: only pages with a reload interval get preloaded to ensure freshness expectation.
+        skippedNoInterval++;
+        if (this.debugActivationLogging)
+          console.debug('[rotator][warmPreloads] skip (no reloadInterval)', {
+            url: tabCfg.page?.url,
+          });
+        continue;
+      }
       try {
-        const SUPPRESSION_MS = 3000; // configurable constant if needed later
+        const SUPPRESSION_MS = 3000;
         if (
           tabCfg.lastPromotionAt &&
           Date.now() - tabCfg.lastPromotionAt < SUPPRESSION_MS
         ) {
+          skippedRecentPromotion++;
           if (this.debugActivationLogging)
-            console.debug('[rotator] warmPreloads skip (recent promotion)', {
-              tabId: tabCfg.tabId,
+            console.debug('[rotator][warmPreloads] skip (recent promotion)', {
+              url: tabCfg.page?.url,
               ageMs: Date.now() - tabCfg.lastPromotionAt,
             });
           continue;
         }
       } catch {}
-      if (tabCfg.nextTabId > 0) continue; // already has preload
-      // Avoid surfacing preload to user: enforce inactive creation
+      if (tabCfg.nextTabId > 0) {
+        skippedExisting++;
+        if (this.debugActivationLogging)
+          console.debug('[rotator][warmPreloads] skip (already has preload)', {
+            url: tabCfg.page?.url,
+            nextTabId: tabCfg.nextTabId,
+          });
+        continue;
+      }
       const originalActive = tabCfg.active;
       tabCfg.active = false;
+      const beforeIds = new Set(this.rotationState.tabIds ?? []);
       try {
-        const beforeIds = new Set(this.rotationState.tabIds ?? []);
+        if (this.debugActivationLogging)
+          console.debug('[rotator][warmPreloads] create attempt', {
+            url: tabCfg.page?.url,
+            reloadIntervalSeconds: reloadInterval,
+          });
         const res = await this.tabLifecycle.preloadNextPageTab(tabCfg);
-        // If preload created, persist updated tracked IDs
         if (
           res.updatedConfig.nextTabId > 0 &&
           !beforeIds.has(res.updatedConfig.nextTabId)
@@ -1679,13 +1716,37 @@ export class RotationService {
             lastActivatedTabId: this.lastActivatedTabId,
             rotationCycle: this.rotationCycle,
           });
+          created++;
+          if (this.debugActivationLogging)
+            console.debug('[rotator][warmPreloads] created', {
+              url: tabCfg.page?.url,
+              nextTabId: res.updatedConfig.nextTabId,
+            });
+        } else if (this.debugActivationLogging) {
+          console.debug('[rotator][warmPreloads] no tab created', {
+            url: tabCfg.page?.url,
+            nextTabId: res.updatedConfig.nextTabId,
+          });
         }
       } catch (e) {
         if (this.debugActivationLogging)
-          console.debug('[rotator] warmPreloads failed', e);
+          console.debug('[rotator][warmPreloads] failed', {
+            url: tabCfg.page?.url,
+            error: String(e),
+          });
       } finally {
-        tabCfg.active = originalActive; // restore
+        tabCfg.active = originalActive;
       }
+    }
+    if (this.debugActivationLogging) {
+      console.debug('[rotator][warmPreloads] end', {
+        durationMs: Date.now() - startTs,
+        created,
+        skippedRecentPromotion,
+        skippedExisting,
+        skippedNoInterval,
+        pages: pages.length,
+      });
     }
   }
 }

@@ -60,6 +60,47 @@ export class TabConfig {
   /** Timestamp of last handled navigation error (ms since epoch) for throttling duplicate error events. */
   lastErrorAt?: number;
 
+  /** Consecutive failed preload promotions or readiness timeouts. */
+  preloadFailureCount?: number;
+  /** Earliest timestamp (ms) when a new preload attempt is allowed (backoff window). */
+  nextPreloadAllowedAt?: number;
+  /** Current backoff delay applied (ms) for preload attempts, exponential growth with cap. */
+  currentPreloadBackoffMs?: number;
+
+  /** Timestamp when current preload (nextTabId) was created. */
+  preloadCreationAt?: number;
+  /** Count of chrome.tabs.onUpdated events observed for current preload during initial wait. */
+  preloadOnUpdatedCount?: number;
+  /** Milliseconds spent waiting in last waitForInitialLoad for the preload. */
+  lastPreloadWaitMs?: number;
+  /** Outcome classification of last waitForInitialLoad: 'complete' | 'timeout' | 'error'. */
+  lastPreloadWaitOutcome?: 'complete' | 'timeout' | 'error';
+  /** Whether status=complete was ever observed for the preload prior to promotion/discard. */
+  preloadCompleteObserved?: boolean;
+
+  /** Ordered list of status (and limited changeInfo flags) observed for the current preload via onUpdated before completion or timeout. */
+  preloadStatusesSeen?: string[];
+
+  /** Distinct from preload timing: time spent waiting for initial primary (tabId) creation load. */
+  primaryInitialWaitMs?: number;
+  /** Outcome for initial primary load: mirrors preload outcomes but tracked separately. */
+  primaryInitialWaitOutcome?: 'complete' | 'timeout' | 'error';
+
+  /** Historical ring buffer of previous preload attempts (most recent first). Each entry: {at, waitMs, outcome, onUpdatedCount, statuses, reason, httpStatus?, url}. */
+  preloadHistory?: Array<{
+    at: number;
+    waitMs?: number;
+    outcome?: string;
+    onUpdatedCount?: number;
+    statuses?: string[];
+    reason?: string;
+    httpStatus?: number;
+    httpError?: string;
+    url?: string;
+  }>;
+  /** Max entries to retain in preloadHistory (default 5). */
+  preloadHistoryMax?: number;
+
   constructor(init?: Partial<TabConfig>) {
     Object.assign(this, init);
   }

@@ -16,6 +16,7 @@ export class ConfigData {
    */
   preventWindowFocus?: boolean;
 
+
   constructor(init?: Partial<ConfigData>) {
     Object.assign(this, init);
   }

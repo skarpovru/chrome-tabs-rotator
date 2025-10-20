@@ -41,6 +41,39 @@ const resumeHeuristic = new ResumeHeuristicUtil(
 );
 let __lastPreserveDecision: any = null;
 
+// --- Dev-only debug wrapper for suppressed runtime.lastError diagnostics ---
+// Guard by global flag; can be removed or conditioned by build-time define if desired.
+try {
+  const rt: any = chrome.runtime;
+  if (rt && !rt.__debugWrappedSendMessage) {
+    rt.__suppressedErrorCount = 0;
+    const original = rt.sendMessage?.bind(rt);
+    if (typeof original === 'function') {
+      rt.sendMessage = function(...args: any[]) {
+        const callback = args[args.length - 1];
+        let hasCallback = typeof callback === 'function';
+        const wrappedCb = hasCallback ? function(resp: any) {
+          const err = rt.lastError;
+          if (err) {
+            rt.__suppressedErrorCount++;
+            // eslint-disable-next-line no-console
+            console.debug('[debug-sendMessage] lastError', err.message, { args: args.slice(0, hasCallback? args.length -1 : args.length) });
+          }
+          try { callback?.(resp); } catch {}
+        } : undefined;
+        try {
+          return original(...(hasCallback ? [...args.slice(0, -1), wrappedCb] : args));
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.debug('[debug-sendMessage] synchronous throw', String(e));
+          throw e; // preserve original behavior for genuine errors
+        }
+      };
+      rt.__debugWrappedSendMessage = true;
+    }
+  }
+} catch { /* ignore wrapper failures */ }
+
 async function attemptPreservedResume(context: 'onInstalled' | 'onStartup') {
   try {
     const stored = await (rotationService as any).storage.get(
@@ -505,9 +538,28 @@ if (typeof __E2E_TESTING__ !== 'undefined' && __E2E_TESTING__) {
         }
       },
       // Trigger reload alarm for a given tab id (if scheduled name pattern is reload:<id>)
+      // Trigger reload alarm logic directly for a tabId
       triggerReload: async (tabId: number) => {
         try {
           await (rotationService as any).onReloadAlarm(tabId);
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
+      // Preferred explicit name used by new e2e tests (wrapper around triggerReload)
+      triggerReloadAlarmForTab: async ({ tabId }: { tabId: number }) => {
+        try {
+          await (rotationService as any).onReloadAlarm(tabId);
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
+      // Generic test flag setter (used to simulate one-off failure scenarios)
+      setTestFlag: async ({ name, value }: { name: string; value: any }) => {
+        try {
+          (rotationService as any)[name] = value;
           return { ok: true };
         } catch (e) {
           return { ok: false, error: String(e) };
@@ -558,6 +610,14 @@ if (typeof __E2E_TESTING__ !== 'undefined' && __E2E_TESTING__) {
               retryCount: t.retryCount,
               reloadIntervalSeconds: t.page?.reloadIntervalSeconds,
               rotateIntervalSeconds: t.page?.rotateIntervalSeconds,
+              // Expose readiness & suspension flags for E2E stability helpers
+              tabIdReady: t.tabIdReady,
+              nextTabIdReady: t.nextTabIdReady,
+              suspended: !!t.suspended,
+              ready: {
+                primary: t.tabIdReady === true,
+                preload: t.nextTabIdReady === true,
+              },
             })) || [];
           let warmPreloadKicks = 0;
           try {
@@ -604,6 +664,24 @@ if (typeof __E2E_TESTING__ !== 'undefined' && __E2E_TESTING__) {
           return { ok: false, error: String(e) };
         }
       },
+      setMaxRetries: async (n: number) => {
+        try {
+          const svc: any = rotationService as any;
+          const val = Math.max(0, Number(n));
+          svc.maxRetries = val;
+          return { ok: true, maxRetries: val };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
+      getMaxRetries: async () => {
+        try {
+          const svc: any = rotationService as any;
+          return { ok: true, maxRetries: svc.maxRetries };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
       triggerConfigReload: async () => {
         try {
           await (rotationService as any).onConfigReloadAlarm();
@@ -620,7 +698,19 @@ if (typeof __E2E_TESTING__ !== 'undefined' && __E2E_TESTING__) {
             (t: any) => t.page?.url === url
           );
           if (!tab) return { ok: false, error: 'tab not found' };
-          await svc.onHandleError(tab.tabId || tab.nextTabId, url);
+          // Ensure we have a concrete tabId to target; if both missing attempt creation.
+          let targetId = tab.tabId || tab.nextTabId;
+          if (!(targetId > 0)) {
+            try {
+              await svc.createTab?.(tab);
+              targetId = tab.tabId || tab.nextTabId;
+            } catch (e) {
+              return { ok: false, error: 'materialize failed: ' + String(e) };
+            }
+          }
+          if (!(targetId > 0))
+            return { ok: false, error: 'no tab id after materialize' };
+          await svc.onHandleError(targetId, url);
           return { ok: true };
         } catch (e) {
           return { ok: false, error: String(e) };
@@ -712,7 +802,7 @@ if (typeof __E2E_TESTING__ !== 'undefined' && __E2E_TESTING__) {
           console.error('[bg-e2e] Crash pre-reload save failed:', e);
         }
         // Use a raw crash to ensure consistent restart behavior. Return a promise that resolves before the crash.
-        return new Promise(resolve => {
+        return new Promise((resolve) => {
           setTimeout(() => {
             resolve({ ok: true });
             throw new Error('Simulating a service worker crash for E2E test.');
@@ -726,8 +816,12 @@ if (typeof __E2E_TESTING__ !== 'undefined' && __E2E_TESTING__) {
             await chrome.alarms.clear('rotate');
           }
           // Set preservation flag so heuristic passes
-          await (rotationService as any).storage.set({ [StorageKeys.ForcePreserveNextInit]: true });
-          await (rotationService as any).storage.set({ [StorageKeys.RotationHeartbeat]: Date.now() });
+          await (rotationService as any).storage.set({
+            [StorageKeys.ForcePreserveNextInit]: true,
+          });
+          await (rotationService as any).storage.set({
+            [StorageKeys.RotationHeartbeat]: Date.now(),
+          });
           // Explicitly save state, which is critical for raw crash preservation
           await (rotationService as any).rotationRepo?.save?.(
             (rotationService as any).rotationState,
@@ -737,7 +831,7 @@ if (typeof __E2E_TESTING__ !== 'undefined' && __E2E_TESTING__) {
           console.error('[bg-e2e] crashRaw pre-save failed:', e);
         }
         // This will cause an unhandled exception, forcing a "real" crash. Return a promise that resolves before the crash.
-        return new Promise(resolve => {
+        return new Promise((resolve) => {
           setTimeout(() => {
             resolve({ ok: true });
             throw new Error('Simulating raw unhandled exception crash');
@@ -836,6 +930,16 @@ if (chrome.webNavigation && chrome.webNavigation.onErrorOccurred) {
     // Only act on main frame errors (frameId === 0) to avoid duplicate per-resource noise
     if ((details as any)?.frameId != null && (details as any).frameId !== 0)
       return;
+    try {
+      (self as any).__httpStatusMap = (self as any).__httpStatusMap || {};
+      // For error events Chrome does not give statusCode; mark a synthetic -1 so we distinguish from unknown.
+      (self as any).__httpStatusMap[details.tabId] = -1;
+      // Capture error description if available (e.g., net::ERR_NAME_NOT_RESOLVED) for richer diagnostics.
+      if ((details as any)?.error) {
+        (self as any).__httpErrorTextMap = (self as any).__httpErrorTextMap || {};
+        (self as any).__httpErrorTextMap[details.tabId] = String((details as any).error).slice(0, 160);
+      }
+    } catch {}
     void (async () => {
       try {
         await rotationService.onHandleError(details.tabId, details.url);
@@ -850,6 +954,12 @@ if (chrome.webNavigation && chrome.webNavigation.onCompleted) {
   chrome.webNavigation.onCompleted.addListener((details) => {
     void (async () => {
       try {
+        try {
+          (self as any).__httpStatusMap = (self as any).__httpStatusMap || {};
+          // details may include statusCode in MV3 (Chrome >= some versions). If absent leave undefined.
+          const sc = (details as any).statusCode;
+          if (typeof sc === 'number') (self as any).__httpStatusMap[details.tabId] = sc;
+        } catch {}
         await rotationService.onPageLoaded(details.tabId, details.url);
         // test-only nav counting
         if (typeof __E2E_TESTING__ !== 'undefined' && __E2E_TESTING__) {
@@ -921,52 +1031,53 @@ chrome.runtime.onMessage.addListener(
     sender: chrome.runtime.MessageSender,
     sendResponse: (response?: any) => void
   ): boolean => {
+    const safeSendResponse = (response?: any) => {
+      try {
+        sendResponse(response);
+      } catch (e) {
+        // Ignore errors if the receiving end has been closed, which is common.
+        safeRuntimeLastError();
+      }
+    };
+
     console.log('[bg] Message:', message);
 
     // uiHello handshake: popup / diagnostics announces presence
     if ((message as any).action === 'uiHello') {
       (chrome.runtime as any).__uiActiveFlagInternal = true;
       (chrome.runtime as any).__uiActiveHandshakeAt = Date.now();
-      sendResponse?.({ ok: true });
+      safeSendResponse({ ok: true });
       return false; // synchronous
     }
 
     if (message.action === 'rotateTabs') {
-      sendResponse({ ok: true, status: 'starting' });
+      safeSendResponse({ ok: true, status: 'starting' });
+      // Fire-and-forget async init; we don't keep the message channel open to avoid port closed errors.
       void (async () => {
         try {
-          if (!rotationService.isRotating) {
+          if (!rotationService.isRotating && !rotationService.isStarting()) {
             await rotationService.initialize();
           } else {
-            // Instead of ignoring, allow a preservation re-init request if client wants a refresh without tab closure.
-            console.log(
-              '[bg] Already rotating; refreshing state with preservation'
-            );
-            await (rotationService as any).initialize({
-              preserveExisting: true,
-            });
+            console.log('[bg] Already rotating; refreshing state with preservation');
+            await (rotationService as any).initialize({ preserveExisting: true });
           }
         } catch (e) {
           console.error('[bg] Failed to start rotation:', e);
         }
       })();
-      return true;
+      return false; // synchronous ack
     }
 
     if (message.action === 'stopRotation') {
-      sendResponse({ ok: true, status: 'stopping' });
+      safeSendResponse({ ok: true, status: 'stopping' });
       void (async () => {
-        try {
-          await rotationService.stopRotation();
-        } catch (e) {
-          console.error('[bg] Failed to stop rotation:', e);
-        }
+        try { await rotationService.stopRotation(); } catch (e) { console.error('[bg] Failed to stop rotation:', e); }
       })();
-      return true;
+      return false;
     }
 
     if (message.action === 'getRotationState') {
-      sendResponse({ ok: true, isRotating: rotationService.isRotating });
+      safeSendResponse({ ok: true, isRotating: rotationService.isRotating });
       return false; // synchronous
     }
 
@@ -981,12 +1092,12 @@ chrome.runtime.onMessage.addListener(
               StorageKeys.DebugActivationLogging
             );
           } catch {}
-          sendResponse({
+          safeSendResponse({
             ok: true,
             diagnostics: { ...diags, debugActivationLogging: debugFlag },
           });
         } catch (e) {
-          sendResponse({ ok: false, error: String(e) });
+          safeSendResponse({ ok: false, error: String(e) });
         }
       })();
       return true;
@@ -996,9 +1107,9 @@ chrome.runtime.onMessage.addListener(
       void (async () => {
         try {
           const diags = await rotationService.enforceNow();
-          sendResponse({ ok: true, diagnostics: diags });
+          safeSendResponse({ ok: true, diagnostics: diags });
         } catch (e) {
-          sendResponse({ ok: false, error: String(e) });
+          safeSendResponse({ ok: false, error: String(e) });
         }
       })();
       return true;
@@ -1008,9 +1119,9 @@ chrome.runtime.onMessage.addListener(
       void (async () => {
         try {
           const result = await rotationService.forceRotateNow();
-          sendResponse(result);
+          safeSendResponse(result);
         } catch (e) {
-          sendResponse({ ok: false, error: String(e) });
+          safeSendResponse({ ok: false, error: String(e) });
         }
       })();
       return true;
@@ -1023,9 +1134,9 @@ chrome.runtime.onMessage.addListener(
           await (rotationService as any).storage.set({
             [StorageKeys.DebugActivationLogging]: val,
           });
-          sendResponse({ ok: true, value: val });
+          safeSendResponse({ ok: true, value: val });
         } catch (e) {
-          sendResponse({ ok: false, error: String(e) });
+          safeSendResponse({ ok: false, error: String(e) });
         }
       })();
       return true;
@@ -1035,9 +1146,9 @@ chrome.runtime.onMessage.addListener(
       void (async () => {
         try {
           rotationService.clearActivationError();
-          sendResponse({ ok: true });
+          safeSendResponse({ ok: true });
         } catch (e) {
-          sendResponse({ ok: false, error: String(e) });
+          safeSendResponse({ ok: false, error: String(e) });
         }
       })();
       return true;
@@ -1047,9 +1158,9 @@ chrome.runtime.onMessage.addListener(
       void (async () => {
         try {
           await rotationService.clearActivationHistory();
-          sendResponse({ ok: true });
+          safeSendResponse({ ok: true });
         } catch (e) {
-          sendResponse({ ok: false, error: String(e) });
+          safeSendResponse({ ok: false, error: String(e) });
         }
       })();
       return true;
@@ -1061,9 +1172,9 @@ chrome.runtime.onMessage.addListener(
           const val = await (rotationService as any).storage.get(
             StorageKeys.PreserveHeartbeatMaxAgeSeconds
           );
-          sendResponse({ ok: true, value: val });
+          safeSendResponse({ ok: true, value: val });
         } catch (e) {
-          sendResponse({ ok: false, error: String(e) });
+          safeSendResponse({ ok: false, error: String(e) });
         }
       })();
       return true;
@@ -1078,15 +1189,15 @@ chrome.runtime.onMessage.addListener(
           await (rotationService as any).storage.set({
             [StorageKeys.PreserveHeartbeatMaxAgeSeconds]: newVal,
           });
-          sendResponse({ ok: true, value: newVal });
+          safeSendResponse({ ok: true, value: newVal });
         } catch (e) {
-          sendResponse({ ok: false, error: String(e) });
+          safeSendResponse({ ok: false, error: String(e) });
         }
       })();
       return true;
     }
 
-    sendResponse({
+    safeSendResponse({
       ok: false,
       error: `unknown action: ${(message as any)?.action}`,
     });

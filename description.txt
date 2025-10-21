@@ -58,12 +58,12 @@ Changelog:
 - Debug activation logging toggle + clear error/history buttons
 
 [1.5] - 2025-10-08
-- Fix: Extension could appear "started" after browser restart but no tabs/fullscreen until manual stop/start.
-- Fix: Rare runaway tab creation on reload alarms (continuous new tabs) caused by creating a fresh tab instead of reloading existing when only primary tab present.
+- Fix: Extension could appear "started" after browser restart, but no tabs/fullscreen until manual stop/start.
+- Fix: Rare runaway tab creation on reload alarms (continuous new tabs) caused by creating a fresh tab instead of reloading the existing one when only the primary tab is present.
 
 [1.6] - 2025-10-20
-- Improved crash / restart tab recovery robustness (grace + watchdog interplay tightened).
+- Improved crash/restart tab recovery robustness (grace + watchdog interplay tightened).
 - Enforced the tabs order.
-- Added comprehensive Playwright E2E suite.
+- Added comprehensive Playwright E2E test suite.
 
 Need help or want a feature? Open an issue: github.com/skarpovru/chrome-tabs-rotator/issues

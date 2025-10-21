@@ -40,7 +40,7 @@
 
 ## [1.6] - 2025-10-20
 
-- Improved crash / restart tab recovery robustness (grace + watchdog interplay tightened).
+- Improved crash/restart tab recovery robustness (grace + watchdog interplay tightened).
 - Enforced the tabs order.
-- Added comprehensive Playwright E2E suite.
+- Added comprehensive Playwright E2E test suite.
 - Added transient storage failure resilience and large config scale scenarios.

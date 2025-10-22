@@ -74,7 +74,7 @@ describe('multi-page warm preload suppression', () => {
         tabs.push({ id: p.tabId, windowId: 1, url: p.page.url, active: p.active });
         tm.tabsConfig.tabs.push(p);
       }
-      (rotation as any).tabsConfig = tm.tabsConfig;
+      (rotation as any)._tabsConfig = tm.tabsConfig;
       (rotation as any).rotationState.isRotating = true;
       (rotation as any).rotationState.tabIds = tm.tabsConfig.tabs.map((t: any) => t.tabId);
   ;(rotation as any).debugActivationLogging = true;

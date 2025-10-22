@@ -13,6 +13,7 @@ export interface PreloadResult {
  * Keeps RotationService focused on orchestration.
  */
 export class TabLifecycleService {
+  private static readonly PRELOAD_DISABLE_THRESHOLD = 5; // consecutive no-event failures
   constructor(
     private tabManager: TabManagerService,
     private scheduler: SchedulerService,
@@ -82,6 +83,10 @@ export class TabLifecycleService {
     );
     if (!tabConfig) return;
     try {
+      // Policy: skip preload creation for file:// schemes or when explicitly disabled
+      const scheme = tabConfig.page?.url?.split(':')[0];
+      const skipPreloadPolicy =
+        scheme === 'file' || tabConfig.preloadDisabled === true;
       // Simplified strategy:
       // 1. Always create a hidden preload (if one does not exist) for freshness instead of reloading primary directly.
       // 2. Wait briefly for its initial load completion (non-blocking timeout safety inside waitForInitialLoad).
@@ -93,7 +98,13 @@ export class TabLifecycleService {
       const now = Date.now();
       const backoffActive = (tabConfig.nextPreloadAllowedAt ?? 0) > now;
       let createdPreload = false;
-      if (!existingPreloadId && !backoffActive) {
+      // Only create a preload if the primary is NOT currently active (background refresh) OR we are single page.
+      let primaryActive = false;
+      if (tabConfig.tabId > 0) {
+        try { const t = await chrome.tabs.get(tabConfig.tabId); primaryActive = !!t?.active; } catch {}
+      }
+      const singlePage = (tabsConfig?.tabs?.length || 0) <= 1;
+      if (!existingPreloadId && !backoffActive && !skipPreloadPolicy && (!primaryActive || singlePage)) {
         // Create preload
         const beforeIds = new Set<number>(
           tabsConfig?.tabs
@@ -141,7 +152,8 @@ export class TabLifecycleService {
       // If there's now a preload attempt, wait for its initial load (best-effort)
       if (tabConfig.nextTabId > 0) {
         try {
-          await this.waitForInitialLoad(tabConfig, 12000);
+            // Extended wait for slow connections (configurable future): 10000ms
+            await this.waitForInitialLoad(tabConfig, 10000);
         } catch (e) {
           console.debug('[tabLifecycle] waitForInitialLoad error', e);
         }
@@ -149,42 +161,29 @@ export class TabLifecycleService {
 
       const readyPreload = tabConfig.nextTabId > 0 && tabConfig.nextTabIdReady;
       if (readyPreload) {
+        // Promote only when preload is ready; do not activate immediately if old primary was active
         const oldPrimary = tabConfig.tabId > 0 ? tabConfig.tabId : undefined;
-        let oldPrimaryActive = false;
-        if (oldPrimary) {
-          try {
-            const t = await chrome.tabs.get(oldPrimary);
-            oldPrimaryActive = !!t?.active;
-          } catch {}
-        }
-        // Promote
+        const oldPrimaryWasActive = primaryActive;
         tabConfig.tabId = tabConfig.nextTabId;
         tabConfig.tabIdReady = true;
         tabConfig.nextTabId = 0;
         tabConfig.nextTabIdReady = false;
         tabConfig.lastPromotionAt = Date.now();
-        // If old primary was active, activate the new one before removing old to reduce flicker.
-        if (oldPrimaryActive) {
-          try {
-            await chrome.tabs.update(tabConfig.tabId, { active: true });
-          } catch {}
-        }
-        // Remove old primary if exists
+        // Remove old primary AFTER promotion without re-focusing preload (rotation will focus later)
         if (oldPrimary) {
-          try {
-            await chrome.tabs.remove(oldPrimary);
-          } catch {}
+          try { await chrome.tabs.remove(oldPrimary); } catch {}
         }
-        // Update state
+        tabConfig.deferredReloadDue = false; // clear flag on success
         await setStateCb([
           ...(tabsConfig?.tabs
             ?.flatMap((t) => [t.tabId, t.nextTabId])
             .filter((id) => id && id > 0) as number[]),
         ]);
         await delegateInvariant();
-        console.log('[tabLifecycle] Reload alarm promoted fresh preload', {
+        console.log('[tabLifecycle] Reload promotion completed (background)', {
           newPrimary: tabConfig.tabId,
           oldPrimary,
+          oldPrimaryWasActive,
         });
         try {
           // Add history entry for successful promotion
@@ -208,9 +207,11 @@ export class TabLifecycleService {
           tabConfig.preloadHistory = hist.slice(0, tabConfig.preloadHistoryMax);
         } catch {}
         // Reset backoff on success
-        tabConfig.preloadFailureCount = 0;
-        tabConfig.currentPreloadBackoffMs = 0;
-        tabConfig.nextPreloadAllowedAt = undefined;
+    tabConfig.preloadFailureCount = 0;
+    tabConfig.currentPreloadBackoffMs = 0;
+    tabConfig.nextPreloadAllowedAt = undefined;
+    tabConfig.preloadDisabled = false;
+    tabConfig.preloadDisabledReason = undefined;
       } else {
         // Fallback: reload the existing primary if promotion not possible
         // Discard failed preload attempt if it exists (never became ready)
@@ -221,69 +222,32 @@ export class TabLifecycleService {
           try {
             await chrome.tabs.remove(failedPreloadId);
           } catch {}
-          const reason = this.classifyPreloadFailure(tabConfig);
-          console.warn(
-            '[tabLifecycle] Discarded failed preload after reload alarm timeout',
-            failedPreloadId,
-            {
-              reason,
-              waitedMs: tabConfig.lastPreloadWaitMs,
-              onUpdatedEvents: tabConfig.preloadOnUpdatedCount,
-              completeObserved: tabConfig.preloadCompleteObserved,
-              creationAgeMs: tabConfig.preloadCreationAt
-                ? Date.now() - tabConfig.preloadCreationAt
-                : undefined,
-              lastOutcome: tabConfig.lastPreloadWaitOutcome,
-            }
-          );
-          try {
-            const hist = tabConfig.preloadHistory || [];
-            const httpMap = (self as any).__httpStatusMap || {};
-            const statusCode = httpMap[failedPreloadId];
-            const errMap = (self as any).__httpErrorTextMap || {};
-            const httpErrorText = errMap[failedPreloadId];
-            hist.unshift({
-              at: Date.now(),
-              waitMs: tabConfig.lastPreloadWaitMs,
-              outcome: tabConfig.lastPreloadWaitOutcome || 'discarded',
-              onUpdatedCount: tabConfig.preloadOnUpdatedCount,
-              statuses: tabConfig.preloadStatusesSeen?.slice(0, 10),
-              reason,
-              httpStatus: typeof statusCode === 'number' ? statusCode : undefined,
-              httpError: httpErrorText,
-              url: tabConfig.page?.url,
-            });
-            tabConfig.preloadHistoryMax = tabConfig.preloadHistoryMax || 5;
-            tabConfig.preloadHistory = hist.slice(0, tabConfig.preloadHistoryMax);
-          } catch {}
-          // Update persisted IDs after removal
+          // Only remove the failed preload, keep the primary tab in rotationState.tabIds
           await setStateCb([
             ...(tabsConfig?.tabs
-              ?.flatMap((t) => [t.tabId, t.nextTabId])
+              ?.flatMap((t) => [t.tabId]) // Only include tabId (primary) for each tab
               .filter((id) => id && id > 0) as number[]),
           ]);
-          // Increment backoff counters
-          tabConfig.preloadFailureCount =
-            (tabConfig.preloadFailureCount ?? 0) + 1;
-          const prevBackoff = tabConfig.currentPreloadBackoffMs ?? 0;
-          const base = 2000; // 2s base
-          const max = 60000; // 60s cap
-          const next = prevBackoff > 0 ? Math.min(prevBackoff * 2, max) : base;
-          tabConfig.currentPreloadBackoffMs = next;
-          tabConfig.nextPreloadAllowedAt = Date.now() + next;
-          console.info('[tabLifecycle] Preload backoff applied', {
-            count: tabConfig.preloadFailureCount,
-            backoffMs: next,
-          });
+            // Apply exponential backoff after failed preload
+            tabConfig.preloadFailureCount = (tabConfig.preloadFailureCount ?? 0) + 1;
+            const base = 2000; // 2s base
+            const max = 60000; // 60s cap
+            const prevBackoff = tabConfig.currentPreloadBackoffMs ?? 0;
+            const next = prevBackoff > 0 ? Math.min(prevBackoff * 2, max) : base;
+            tabConfig.currentPreloadBackoffMs = next;
+            tabConfig.nextPreloadAllowedAt = Date.now() + next;
+            // Disable further preloads after threshold of no-event failures
+            if ((tabConfig.preloadFailureCount ?? 0) >= TabLifecycleService.PRELOAD_DISABLE_THRESHOLD) {
+              tabConfig.preloadDisabled = true;
+              tabConfig.preloadDisabledReason = 'no-events-threshold';
+            }
         }
         if (tabConfig.tabId > 0) {
-          console.log(
-            '[tabLifecycle] Reload alarm fallback reload primary',
-            tabConfig.tabId
-          );
-          try {
-            await chrome.tabs.reload(tabConfig.tabId);
-          } catch {}
+          // Reload primary in-place only if we never created a valid preload (or policy skip)
+          console.log('[tabLifecycle] Fallback in-place reload primary', tabConfig.tabId);
+          try { await chrome.tabs.reload(tabConfig.tabId); } catch {}
+        } else if (skipPreloadPolicy && tabConfig.tabId > 0) {
+          // Policy skip path already handled by primary reload above
         } else if (!hadPrimary) {
           // No primary exists – create one directly as ultimate recovery path.
           try {
@@ -314,6 +278,13 @@ export class TabLifecycleService {
     return new Promise(async (resolve) => {
       let resolved = false;
       const start = Date.now();
+      const baseTimeout = timeoutMs;
+      const maxTimeout = baseTimeout * 3; // cap at 3x
+      let currentDeadline = start + baseTimeout;
+      let extended = false;
+      let lastProgressAt = start;
+      const progressExtendWindowMs = 2500; // require min spacing between extensions
+      const extensionFactor = 1.5; // multiply remaining budget
       const done = () => {
         if (!resolved) {
           resolved = true;
@@ -350,6 +321,31 @@ export class TabLifecycleService {
               ] !== statusStr
             ) {
               tabConfig.preloadStatusesSeen.push(statusStr);
+              // Dynamic timeout extension: if we see forward progress and still below max cap
+              const now = Date.now();
+              const statuses = tabConfig.preloadStatusesSeen;
+              const progressEvents = statuses.filter(s => s === 'loading' || s === 'unknown');
+              if (!resolved && now < currentDeadline && progressEvents.length > 0) {
+                const sinceLast = now - lastProgressAt;
+                if (sinceLast >= progressExtendWindowMs) {
+                  const remaining = currentDeadline - now;
+                  const proposedExtra = Math.floor(remaining * (extensionFactor - 1));
+                  const newDeadline = Math.min(currentDeadline + proposedExtra, start + maxTimeout);
+                  if (newDeadline > currentDeadline) {
+                    currentDeadline = newDeadline;
+                    extended = true;
+                    lastProgressAt = now;
+                    if ((tabConfig as any).debugDynamicTimeout) {
+                      console.debug('[tabLifecycle] dynamic preload timeout extended', {
+                        tabId: updatedTabId,
+                        statuses,
+                        newDeadline,
+                        elapsed: now - start,
+                      });
+                    }
+                  }
+                }
+              }
             }
           }
           if (changeInfo['status'] === 'complete') {
@@ -382,17 +378,25 @@ export class TabLifecycleService {
           setTimeout(done, 250);
         }
       } catch {}
-      setTimeout(() => {
-        if (!resolved) {
-          tabConfig.lastPreloadWaitOutcome =
-            tabConfig.lastPreloadWaitOutcome || 'timeout';
-          if (tabConfig.tabId > 0 && !((tabConfig.primaryInitialWaitMs ?? 0) > 0)) {
-            tabConfig.primaryInitialWaitMs = Date.now() - start;
-            tabConfig.primaryInitialWaitOutcome = 'timeout';
+      // Poll for deadline rather than single setTimeout to respect dynamic extensions
+      const deadlineCheck = () => {
+        if (resolved) return;
+        const now = Date.now();
+        if (now >= currentDeadline) {
+          if (!resolved) {
+            tabConfig.lastPreloadWaitOutcome =
+              tabConfig.lastPreloadWaitOutcome || 'timeout';
+            if (tabConfig.tabId > 0 && !((tabConfig.primaryInitialWaitMs ?? 0) > 0)) {
+              tabConfig.primaryInitialWaitMs = now - start;
+              tabConfig.primaryInitialWaitOutcome = 'timeout';
+            }
           }
+          done();
+          return;
         }
-        done();
-      }, timeoutMs);
+        setTimeout(deadlineCheck, 250);
+      };
+      setTimeout(deadlineCheck, 250);
     });
   }
 

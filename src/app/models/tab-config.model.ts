@@ -81,10 +81,26 @@ export class TabConfig {
   /** Ordered list of status (and limited changeInfo flags) observed for the current preload via onUpdated before completion or timeout. */
   preloadStatusesSeen?: string[];
 
+  /** If true, a reload was deferred because the tab was active. */
+  deferredReloadDue?: boolean;
+  /** Number of times reload was deferred while tab was active. */
+  reloadDeferredCount?: number;
+  /** Last network error code (from chrome.webNavigation.onErrorOccurred) if any. */
+  lastNetworkErrorCode?: string;
+  /** Timestamp of last network error (ms since epoch). */
+  lastNetworkErrorAt?: number;
+  /** Classification of last failure (network/cert/dns/timeout/other). */
+  failureClassification?: 'network' | 'cert' | 'dns' | 'timeout' | 'other';
+  /** Timestamp when deferredReloadDue was last set to true (guard multiple increments). */
+  lastDeferredAt?: number;
+
   /** Distinct from preload timing: time spent waiting for initial primary (tabId) creation load. */
   primaryInitialWaitMs?: number;
   /** Outcome for initial primary load: mirrors preload outcomes but tracked separately. */
   primaryInitialWaitOutcome?: 'complete' | 'timeout' | 'error';
+
+  /** Whether the primary tab has ever fully completed an initial load cycle (webNavigation.onCompleted). */
+  primaryCompleteObserved?: boolean;
 
   /** Historical ring buffer of previous preload attempts (most recent first). Each entry: {at, waitMs, outcome, onUpdatedCount, statuses, reason, httpStatus?, url}. */
   preloadHistory?: Array<{
@@ -100,6 +116,11 @@ export class TabConfig {
   }>;
   /** Max entries to retain in preloadHistory (default 5). */
   preloadHistoryMax?: number;
+
+  /** When true, further preload attempts are suppressed (e.g. scheme policy or repeated failure). */
+  preloadDisabled?: boolean;
+  /** Optional reason for why preloads are disabled. */
+  preloadDisabledReason?: string;
 
   constructor(init?: Partial<TabConfig>) {
     Object.assign(this, init);

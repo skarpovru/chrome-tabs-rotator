@@ -44,3 +44,19 @@
 - Enforced the tabs order.
 - Added comprehensive Playwright E2E test suite.
 - Added transient storage failure resilience and large config scale scenarios.
+
+## [1.7] - 2025-10-22
+
+- Deferred reload: avoids reloading active tab until rotation switches away (unless only one tab).
+- Real network errors (DNS, unreachable) now suspend failing tabs and skip them in rotation.
+- Diagnostics UI and API expose deferred reload and network error info.
+- Improved preload discard path: failed preload is removed & primary retained (unit + e2e coverage).
+- Housekeeping: exposed suspension & readiness flags consistently; minor logging & stability improvements.
+- Canonical URL pruning prevents duplicate failed tabs after browser restart (normalizes trailing slash / hash fragments).
+- Startup recovery preserves rotation state object identity to avoid race causing false non-rotating condition.
+- Dynamic preload wait with progressive timeout extensions (up to 3x) based on status progress (loading/unknown) for slow pages.
+- Background-only preload promotion: avoids focus flicker by deferring activation unless old primary was active.
+- Fallback activation on primary failure reverts to previous healthy tab without advancing rotation index.
+- Enhanced error classification (cert, dns, timeout, generic network) stored in tab config for diagnostics.
+- Exponential backoff & eventual disable for repeated preload creation failures (no-events threshold).
+- Added E2E & unit tests covering duplicate pruning, deferred reload, network suspension, preload failure, retry vs suspension semantics.

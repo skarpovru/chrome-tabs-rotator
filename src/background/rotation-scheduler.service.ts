@@ -27,7 +27,18 @@ export class RotationSchedulerService {
   public async scheduleNext(ctx: RotationScheduleContext): Promise<ScheduleResult> {
     const { currentIndex, tabCount, delaySeconds, tabsConfig } = ctx;
     if (tabCount === 0) throw new Error('scheduleNext called with tabCount=0');
-    const nextIndex = (currentIndex + 1) % tabCount;
+    let nextIndex = (currentIndex + 1) % tabCount;
+    if (tabsConfig?.tabs?.length) {
+      const isFailed = (i: number) => {
+        const t = tabsConfig!.tabs[i];
+        return !!t?.suspended || !!t?.lastNetworkErrorCode;
+      };
+      let guard = 0;
+      while (guard < tabCount && isFailed(nextIndex)) {
+        nextIndex = (nextIndex + 1) % tabCount;
+        guard++;
+      }
+    }
     const when = Date.now() + Math.max(1, delaySeconds) * 1000;
     await this.scheduler.clear('rotate');
     await this.scheduler.create('rotate', { when });

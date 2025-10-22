@@ -41,7 +41,7 @@ describe('RotationWatchdogService ordering preservation', () => {
     for (let i=0;i<config.pages.length;i++) {
       tabsConfig.tabs.push(new TabConfig({ page: config.pages[i], active: i===0, tabIdReady: true, tabId: i+101 } as any));
     }
-  ;(rotator as any).tabsConfig = tabsConfig;
+  ;(rotator as any)._tabsConfig = tabsConfig;
   ;(rotator as any).rotationState = { isRotating: true, tabIds: tabsConfig.tabs.map(t=>t.tabId) };
   ;(rotator as any).currentIndex = 0;
   // Provide minimal no-op implementations to avoid deep chrome usage during self-heal

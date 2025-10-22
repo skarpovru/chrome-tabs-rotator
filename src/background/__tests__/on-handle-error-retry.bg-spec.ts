@@ -37,8 +37,8 @@ describe('RotationService.onHandleError retry path', () => {
       new StorageService(),
       new MetricsService()
     );
-    (service as any).tabsConfig = { tabs: [ { page: { url: 'https://fail.test', reloadIntervalSeconds: 0, delaySeconds: 2 }, tabId: 111, nextTabId: 0, tabIdReady: true, nextTabIdReady: false, retryCount: 0, suspended: false } ] };
-    (service as any).tabManager.tabsConfig = (service as any).tabsConfig;
+  (service as any)._tabsConfig = { tabs: [ { page: { url: 'https://fail.test', reloadIntervalSeconds: 0, delaySeconds: 2 }, tabId: 111, nextTabId: 0, tabIdReady: true, nextTabIdReady: false, retryCount: 0, suspended: false } ] };
+  (service as any).tabManager.tabsConfig = (service as any)._tabsConfig;
     (service as any).__setMaxRetriesForTest(1);
     (service as any).__testForceSimpleRetry = true;
   });

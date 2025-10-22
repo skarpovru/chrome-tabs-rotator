@@ -86,6 +86,35 @@ export class InvariantRebuilderService {
   async enforceInvariant(params: { force?: boolean; resumeAt?: number; trackedIds: number[]; tabManager: TabManagerService; tabsConfig?: TabsConfig }): Promise<number[]> {
     const { force, resumeAt, trackedIds, tabManager, tabsConfig } = params;
     if (!tabsConfig?.tabs?.length) return trackedIds;
-    return await tabManager.enforceInvariant({ force, resumeAt, trackedIds });
+    const result = await tabManager.enforceInvariant({ force, resumeAt, trackedIds });
+    // Duplicate suspended URL pruning: if multiple suspended TabConfigs share same URL, keep first primary and remove others' tab IDs.
+    try {
+      const seen = new Map<string, TabConfig>();
+      for (const cfg of tabsConfig.tabs) {
+        const url = cfg.page?.url;
+        if (!url || !cfg.suspended) continue;
+        if (!seen.has(url)) {
+          seen.set(url, cfg);
+          continue;
+        }
+        // Duplicate suspended; remove its tabId/nextTabId
+        if (cfg.tabId > 0) {
+          try { await chrome.tabs.remove(cfg.tabId); } catch {}
+          cfg.tabId = 0; cfg.tabIdReady = false;
+        }
+        if (cfg.nextTabId > 0) {
+          try { await chrome.tabs.remove(cfg.nextTabId); } catch {}
+          cfg.nextTabId = 0; cfg.nextTabIdReady = false;
+        }
+      }
+      // Enforce nextTabId != tabId invariant
+      for (const cfg of tabsConfig.tabs) {
+        if (cfg.tabId > 0 && cfg.nextTabId === cfg.tabId) {
+          try { await chrome.tabs.remove(cfg.nextTabId); } catch {}
+          cfg.nextTabId = 0; cfg.nextTabIdReady = false;
+        }
+      }
+    } catch {}
+    return result;
   }
 }

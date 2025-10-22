@@ -26,7 +26,7 @@ describe('TabManagerService.createTabs sequential ordering', () => {
     const createSequence: string[] = [];
 
     // Patch chrome.tabs.create to record call sequence
-    const origCreate = g.chrome.tabs.create;
+    const origCreate = typeof g.chrome.tabs.create === 'function' ? g.chrome.tabs.create : async (opts:any)=> ({ id: ++g.__nextId, url: opts.url, active: opts.active, windowId:1 });
     g.chrome.tabs.create = async (opts: any) => {
       createSequence.push(opts.url);
       return await origCreate(opts);

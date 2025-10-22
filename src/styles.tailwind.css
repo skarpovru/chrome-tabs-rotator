@@ -413,6 +413,9 @@
   .max-w-\[200px\] {
     max-width: 200px;
   }
+  .max-w-\[220px\] {
+    max-width: 220px;
+  }
   .min-w-100 {
     min-width: var(--spacing-100);
   }

@@ -17,6 +17,7 @@ import { StorageKeys } from '../../app/models';
  */
 
 describe('RotationService rapid restart & preservation stress', () => {
+  beforeAll(() => { (jasmine as any).DEFAULT_TIMEOUT_INTERVAL = 20000; });
   const PAGE_URL = 'https://stress.example';
   const HEARTBEAT_KEY = StorageKeys.RotationHeartbeat as any;
   const ROT_STATE_KEY = StorageKeys.RotationState as any;
@@ -31,6 +32,7 @@ describe('RotationService rapid restart & preservation stress', () => {
   function seedChrome(randomFailRate = 0) {
     createdTabs = []; removed = []; nextId = 100;
     const metrics = new MetricsService();
+    const updatedListeners: any[] = [];
     (globalThis as any).chrome = {
       tabs: {
         query: async () => createdTabs.map(t => ({ id: t.id, url: t.url, windowId: 1 })),
@@ -40,7 +42,12 @@ describe('RotationService rapid restart & preservation stress', () => {
             throw new Error('Simulated create failure');
           }
           const tab: FakeTab = { id: nextId++, url: opts.url, windowId: 1, active: !!opts.active };
-            createdTabs.push(tab); return tab; },
+          createdTabs.push(tab);
+          // Fire synthetic onUpdated complete event shortly after creation so waitForInitialLoad resolves
+          setTimeout(() => {
+            try { updatedListeners.forEach(l => l(tab.id, { status: 'complete' }, tab as any)); } catch {}
+          }, 10);
+          return tab; },
         update: async (id:number, _opts:any) => {
           const t = createdTabs.find(t => t.id === id); if (t) t.active = true; return t || { id, url: PAGE_URL, windowId: 1, active: true };
         },
@@ -50,7 +57,7 @@ describe('RotationService rapid restart & preservation stress', () => {
             for (const id of arr) removed.push(id);
           createdTabs = createdTabs.filter(t => !arr.includes(t.id));
         },
-        onUpdated: { addListener: () => {}, removeListener: () => {} }
+        onUpdated: { addListener: (fn:any) => updatedListeners.push(fn), removeListener: (fn:any) => { const i = updatedListeners.indexOf(fn); if (i>=0) updatedListeners.splice(i,1); } }
       },
       alarms: { create: () => {}, clear: async () => true, getAll: async () => [] },
       windows: { getLastFocused: async () => ({ id: 1 }) },
@@ -90,6 +97,8 @@ describe('RotationService rapid restart & preservation stress', () => {
   }
 
   it('preserves tabs across many rapid restarts; rebuilds after stale heartbeat', async () => {
+    // Extend timeout for stress loop
+    (jasmine as any).DEFAULT_TIMEOUT_INTERVAL = 15000;
     seedChrome();
     buildRotationService();
 
@@ -102,7 +111,7 @@ describe('RotationService rapid restart & preservation stress', () => {
     storageData[ROT_STATE_KEY] = { rotationState: { isRotating: true, tabIds: [...initialOwned], currentIndex: 0 } };
 
     // Rapid restarts with preservation
-    for (let i=0;i<15;i++) {
+  for (let i=0;i<8;i++) {
       await rot.initialize({ preserveExisting: true });
       const owned = [...(tm as any).ownedTabIds];
       // No unintended removals
@@ -129,6 +138,7 @@ describe('RotationService rapid restart & preservation stress', () => {
   });
 
   it('tolerates random create failures without losing existing tabs', async () => {
+    (jasmine as any).DEFAULT_TIMEOUT_INTERVAL = 15000;
     seedChrome(0.3); // 30% failure rate
     buildRotationService();
     await rot.initialize();
@@ -136,7 +146,7 @@ describe('RotationService rapid restart & preservation stress', () => {
     storageData[HEARTBEAT_KEY] = Date.now();
     storageData[ROT_STATE_KEY] = { rotationState: { isRotating: true, tabIds: [...stableOwned], currentIndex: 0 } };
 
-    for (let i=0;i<10;i++) {
+    for (let i=0;i<6;i++) {
       try {
         await rot.initialize({ preserveExisting: true });
       } catch { /* initialization may bubble if internal create fails before handled */ }

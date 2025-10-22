@@ -66,4 +66,8 @@ Changelog:
 - Enforced the tabs order.
 - Added comprehensive Playwright E2E test suite.
 
+[1.7] - 2025-10-22
+- Deferred reload: avoids reloading active tab until rotation switches away (unless only one tab).
+- Real network errors (DNS, unreachable) now suspend failing tabs and skip them in rotation.
+
 Need help or want a feature? Open an issue: github.com/skarpovru/chrome-tabs-rotator/issues

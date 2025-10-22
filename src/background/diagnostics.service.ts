@@ -40,6 +40,14 @@ export class DiagnosticsService {
       nextTabId: t.nextTabId,
       delaySeconds: t.page?.delaySeconds,
       ready: { primary: t.tabIdReady, next: t.nextTabIdReady },
+      suspended: !!t.suspended,
+      retryCount: t.retryCount,
+      lastErrorAt: t.lastErrorAt,
+      deferredReloadDue: !!t.deferredReloadDue,
+      reloadDeferredCount: t.reloadDeferredCount ?? 0,
+      lastNetworkErrorCode: t.lastNetworkErrorCode ?? null,
+      lastNetworkErrorAt: t.lastNetworkErrorAt ?? null,
+      failureClassification: t.failureClassification || null,
     }));
   }
 

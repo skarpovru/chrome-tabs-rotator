@@ -590,47 +590,66 @@ if (typeof __E2E_TESTING__ !== 'undefined' && __E2E_TESTING__) {
         }
         return out;
       },
-      getTabsConfig: async () => {
-        try {
-          const svc: any = rotationService as any;
-          const tabs =
-            svc.tabsConfig?.tabs?.map((t: any) => ({
-              tabId: t.tabId,
-              nextTabId: t.nextTabId,
-              url: t.page?.url,
-              page: t.page
-                ? {
-                    // provide nested page details for tests expecting t.page?.url
-                    url: t.page.url,
-                    delaySeconds: t.page.delaySeconds,
-                    reloadIntervalSeconds: t.page.reloadIntervalSeconds,
-                    rotateIntervalSeconds: t.page.rotateIntervalSeconds,
-                  }
-                : undefined,
-              retryCount: t.retryCount,
-              reloadIntervalSeconds: t.page?.reloadIntervalSeconds,
-              rotateIntervalSeconds: t.page?.rotateIntervalSeconds,
-              // Expose readiness & suspension flags for E2E stability helpers
-              tabIdReady: t.tabIdReady,
-              nextTabIdReady: t.nextTabIdReady,
-              suspended: !!t.suspended,
-              ready: {
-                primary: t.tabIdReady === true,
-                preload: t.nextTabIdReady === true,
-              },
-            })) || [];
-          let warmPreloadKicks = 0;
+        // Trigger a synthetic primary error for a given page URL (test/e2e helper)
+        triggerPrimaryErrorForUrl: async ({ url }: { url: string }) => {
           try {
-            warmPreloadKicks =
-              typeof svc.getWarmPreloadKickCount === 'function'
-                ? svc.getWarmPreloadKickCount()
-                : svc.warmPreloadKicks || 0;
-          } catch {}
-          return { ok: true, tabs, warmPreloadKicks };
-        } catch (e) {
-          return { ok: false, error: String(e) };
-        }
-      },
+            if (!url) return { ok: false, error: 'url required' };
+            const cfg: any = (rotationService as any).tabManager?.tabsConfig?.tabs?.find((t: any) => t.page?.url === url);
+            if (!cfg || !(cfg.tabId > 0)) return { ok: false, error: 'tab not found' };
+            // Capture pre-state snapshot
+            const before = {
+              tabId: cfg.tabId,
+              nextTabId: cfg.nextTabId,
+              suspended: !!cfg.suspended,
+              retryCount: cfg.retryCount || 0,
+              primaryCompleteObserved: !!cfg.primaryCompleteObserved,
+              lastNetworkErrorCode: cfg.lastNetworkErrorCode || null,
+            };
+            await (rotationService as any).onHandleError(cfg.tabId, cfg.page.url);
+            // Refresh reference (onHandleError may mutate in-place)
+            const afterCfg: any = (rotationService as any).tabManager?.tabsConfig?.tabs?.find((t: any) => t.page?.url === url);
+            const after = afterCfg
+              ? {
+                  tabId: afterCfg.tabId,
+                  nextTabId: afterCfg.nextTabId,
+                  suspended: !!afterCfg.suspended,
+                  retryCount: afterCfg.retryCount || 0,
+                  primaryCompleteObserved: !!afterCfg.primaryCompleteObserved,
+                  lastNetworkErrorCode: afterCfg.lastNetworkErrorCode || null,
+                }
+              : null;
+            return { ok: true, before, after };
+          } catch (e) { return { ok: false, error: String(e) }; }
+        },
+        // Trigger a synthetic primary success (page loaded) for a given URL (test/e2e helper)
+        triggerPrimarySuccessForUrl: async ({ url }: { url: string }) => {
+          try {
+            if (!url) return { ok: false, error: 'url required' };
+            const cfg: any = (rotationService as any).tabManager?.tabsConfig?.tabs?.find((t: any) => t.page?.url === url);
+            if (!cfg || !(cfg.tabId > 0)) return { ok: false, error: 'tab not found' };
+            await (rotationService as any).onPageLoaded(cfg.tabId, cfg.page.url);
+            return { ok: true };
+          } catch (e) { return { ok: false, error: String(e) }; }
+        },
+        getTabsConfig: async () => {
+          try {
+            const svc: any = rotationService as any;
+            const tabs =
+              svc.tabsConfig?.tabs?.map((t: any) => ({
+                tabId: t.tabId,
+                nextTabId: t.nextTabId,
+                url: t.page?.url,
+                suspended: !!t.suspended,
+                tabIdReady: t.tabIdReady,
+                nextTabIdReady: t.nextTabIdReady,
+                retryCount: typeof t.retryCount === 'number' ? t.retryCount : 0,
+                primaryCompleteObserved: !!t.primaryCompleteObserved,
+              })) || [];
+            return { ok: true, tabs };
+          } catch (e) {
+            return { ok: false, error: String(e) };
+          }
+        },
       // Canonical ordered URLs (config order) for ordering tests
       getOrderedUrls: async () => {
         try {
@@ -932,12 +951,17 @@ if (chrome.webNavigation && chrome.webNavigation.onErrorOccurred) {
       return;
     try {
       (self as any).__httpStatusMap = (self as any).__httpStatusMap || {};
-      // For error events Chrome does not give statusCode; mark a synthetic -1 so we distinguish from unknown.
       (self as any).__httpStatusMap[details.tabId] = -1;
-      // Capture error description if available (e.g., net::ERR_NAME_NOT_RESOLVED) for richer diagnostics.
       if ((details as any)?.error) {
         (self as any).__httpErrorTextMap = (self as any).__httpErrorTextMap || {};
         (self as any).__httpErrorTextMap[details.tabId] = String((details as any).error).slice(0, 160);
+      }
+      // Set network error info in TabConfig for diagnostics and deferred reload
+      const tabs = rotationService?.tabsConfig?.tabs;
+      const tabConfig = tabs?.find((tab) => tab.tabId === details.tabId || tab.nextTabId === details.tabId);
+      if (tabConfig) {
+        tabConfig.lastNetworkErrorCode = (details as any)?.error || 'unknown';
+        tabConfig.lastNetworkErrorAt = Date.now();
       }
     } catch {}
     void (async () => {

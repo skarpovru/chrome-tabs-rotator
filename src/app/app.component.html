@@ -14,7 +14,7 @@
         Import
       </button>
       <button
-        *ngIf="!useRemoteConfig && localConfig"
+        *ngIf="!useRemoteConfig && hasExportableLocalConfig()"
         class="px-4 py-2 rounded-sm shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
         (click)="onExportLocalConfig()"
       >
@@ -59,6 +59,7 @@
         <fa-icon *ngIf="!showDiagnostics" [icon]="faWrench" />
       </button>
     </div>
+    <div *ngIf="importError" class="text-red-600 text-xs mt-1 max-w-full break-words" title="{{ importError }}">{{ importError }}</div>
   </div>
 
   <div id="currentConfig" class="flex flex-col w-full gap-2">

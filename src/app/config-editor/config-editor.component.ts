@@ -117,7 +117,7 @@ export class ConfigEditorComponent implements OnInit {
       return;
     }
     const pages: PageConfig[] = this.pagesFormArray.controls.map((g) => ({
-      url: g.value.url,
+      url: this.normalizeUrl(g.value.url),
       delaySeconds: g.value.delaySeconds,
       reloadIntervalSeconds: g.value.reloadIntervalSeconds,
     }));
@@ -133,5 +133,15 @@ export class ConfigEditorComponent implements OnInit {
 
   getFormControl(page: FormGroup, controlName: string): FormControl {
     return page.get(controlName) as FormControl;
+  }
+
+  private normalizeUrl(raw: string): string {
+    if (!raw) return raw;
+    const trimmed = raw.trim();
+    // If user omitted protocol but provided something like example.com or www.example.com
+    if (/^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?(\/|$)/i.test(trimmed) && !/^https?:\/\//i.test(trimmed)) {
+      return 'https://' + trimmed;
+    }
+    return trimmed;
   }
 }

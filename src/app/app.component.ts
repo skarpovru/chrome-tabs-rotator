@@ -37,6 +37,7 @@ export class AppComponent implements OnInit, OnDestroy {
   useRemoteConfig: boolean = false;
   isRotationDisabled: boolean = false;
   allowFileSchemeAccessMessage: boolean = false;
+  importError?: string; // surfaced when local import fails validation or parsing
 
   // Diagnostics
   showDiagnostics = false;
@@ -115,27 +116,62 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   }
 
+  hasExportableLocalConfig(): boolean {
+    const cfg = this.localConfig;
+    if (!cfg || !Array.isArray(cfg.pages) || cfg.pages.length === 0) return false;
+    return cfg.pages.some(p => !!p?.url && p.url.trim().length > 0);
+  }
+
   onImportLocalConfig() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json';
+    // Append to body so automated tests (Playwright) can detect it
+    try { document.body.appendChild(input); } catch {}
     input.onchange = (event: any) => {
       const file = event.target.files[0];
       if (file) {
-        this.configLoaderService.loadFromFile(file, false).subscribe({
-          next: (config) => {
-            this.onChangeLocalConfig(config, () => this.cdr.detectChanges());
-          },
-          error: (error) => {
-            console.error('Error importing the configuration file', error);
-          },
-        });
+        this.importConfigFromFile(file);
       }
+      // Cleanup input after selection
+      try { input.parentElement?.removeChild(input); } catch {}
     };
     input.click();
   }
 
+  // Extracted for testability so unit tests can bypass the DOM file input logic.
+  importConfigFromFile(file: File) {
+    this.importError = undefined;
+    this.configLoaderService.loadFromFile(file, true).subscribe({
+      next: (config) => {
+        try {
+          this.onChangeLocalConfig(config, () => this.cdr.detectChanges());
+        } catch (e) {
+          this.importError = 'Failed to apply configuration: ' + e;
+          this.cdr.detectChanges();
+        }
+      },
+      error: (error) => {
+        // Persist error so UI can surface it instead of silent failure
+        this.importError = String(error) || 'Error importing configuration file.';
+        console.error('Error importing the configuration file', error);
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
   onChangeLocalConfig(localConfig: ConfigData, onChanged?: () => void) {
+    // Ensure URLs are normalized (https://) before persisting
+    try {
+      if (localConfig?.pages) {
+        localConfig.pages = localConfig.pages.map(p => {
+          if (p?.url && /^[a-z0-9.-]+\.[a-z]{2,}(:\d+)?(\/|$)/i.test(p.url.trim()) && !/^https?:\/\//i.test(p.url.trim())) {
+            return { ...p, url: 'https://' + p.url.trim() };
+          }
+          return p;
+        });
+      }
+    } catch {}
     chrome.storage.local.set({ [StorageKeys.LocalConfig]: localConfig }, () => {
       this.localConfig = localConfig;
       console.debug('Local configuration saved', localConfig);

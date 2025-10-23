@@ -1,4 +1,6 @@
 {
+  // Production/background build config (service worker + supporting services).
+  // Excludes only spec test files; test helpers remain available for type-aware linting.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist/background",
@@ -6,7 +8,9 @@
   },
   "include": [
     "src/background/**/*.ts",
-    "src/background/__tests__/**/*.spec.ts",
     "src/types/**/*.d.ts"
+  ],
+  "exclude": [
+    "src/background/__tests__/**/*.bg-spec.ts"
   ]
 }

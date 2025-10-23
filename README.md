@@ -420,6 +420,36 @@ Watch both:
 yarn test:all:watch
 ```
 
+### Test Matrix (TypeScript Project / tsconfig Mapping)
+
+| Layer / Purpose            | tsconfig                              | Script(s)                         | Notes |
+|----------------------------|---------------------------------------|-----------------------------------|-------|
+| Angular UI unit/shared     | `tsconfig.spec.app.json`              | `yarn test:ui`                    | Karma + ChromeHeadless |
+| Background rotation logic  | `tsconfig.background.spec.json`       | `yarn test:bg`                    | Jasmine (Node, CommonJS build) |
+| Playwright E2E (extension) | `tsconfig.e2e.json`                   | `yarn e2e`, `yarn e2e:debug`      | MV3 lifecycle + full integration |
+| Production UI build        | `tsconfig.app.json`                   | `yarn build` / `ng build`         | Excludes all `*.spec.ts` |
+| Production background SW   | `tsconfig.background.json`            | Part of `yarn build`              | Excludes tests directory |
+| Harness / manual scripts   | `tsconfig.harness.json`               | node dist/harness/*.js            | Exploratory / tab-manager harness |
+| Tooling / configs          | `tsconfig.tools.json`                 | (editor only, no emit)            | Playwright config + scripts |
+
+Naming Conventions:
+
+- Background tests use `*.bg-spec.ts` to avoid accidental production inclusion.
+- UI tests use `*.spec.ts` under `src/app` or `src/shared`.
+- E2E tests live under `e2e/tests/*.spec.ts`.
+
+Adding a New Test:
+
+1. Choose layer (UI / background / E2E).
+2. Use correct suffix (`.spec.ts` or `.bg-spec.ts`).
+3. Run corresponding script.
+
+If a test is not picked up:
+
+- Verify path matches its tsconfig `include`.
+- Confirm naming convention is correct.
+- For background, rebuild with `yarn test:bg:build` if needed.
+
 Troubleshooting:
 
 | Symptom | Cause | Fix |

@@ -1,4 +1,5 @@
 import { test, expect } from '../utils/extension-fixtures';
+import { pollLocalConfig } from '../utils/storage-helpers';
 import { callE2E as callApi } from '../utils/call-e2e-api';
 import { waitForWorkerApi } from '../utils/reliability-helpers';
 
@@ -37,9 +38,11 @@ test.describe('UI Local Config File Export', () => {
     // Ensure local config editor appears
     await expect(page.locator('app-config-editor')).toBeVisible({ timeout: 10000 });
 
-    // Click Export (button only visible after localConfig present)
-    const exportBtn = page.getByRole('button', { name: /^Export$/ });
-    await expect(exportBtn).toBeVisible({ timeout: 5000 });
+  // Wait for localConfig persisted before clicking Export (flake guard)
+  await pollLocalConfig(page, cfg => !!cfg && Array.isArray(cfg.pages) && cfg.pages.length === 2);
+  // Click Export (button only visible after localConfig present)
+  const exportBtn = page.getByRole('button', { name: /^Export$/ });
+  await expect(exportBtn).toBeVisible({ timeout: 5000 });
     await exportBtn.click();
 
     // Poll capture object for recorded call

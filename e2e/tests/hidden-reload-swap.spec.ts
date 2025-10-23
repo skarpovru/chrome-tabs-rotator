@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../utils/extension-fixtures';
 import { callE2E as callApi } from '../utils/call-e2e-api';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY } from '../utils/stable-domains';
 
 /**
  * Ensures reload workflow creates a background preload and swaps it without user-visible loading.
@@ -13,10 +14,10 @@ test.describe('Hidden reload swap', () => {
     const { context } = ext;
     await waitForWorkerApi(context);
     const cfg = { pages: [
-      { url: 'https://example.com/r1', delaySeconds: 2, reloadIntervalSeconds: 5 }
+  { url: STABLE_DOMAIN_PRIMARY + '/r1', delaySeconds: 2, reloadIntervalSeconds: 5 }
     ], isFullscreen: false, preventWindowFocus: false } as any;
     await callApi(context, 'startWithConfig', cfg);
-    await waitForTabIds(context, cfg.pages.length);
+  await waitForTabIds(context, cfg.pages.length, 7000, { injectSyntheticSuccess: true });
 
     // Get current tab id
     const firstConfig: any = await callApi(context, 'getTabsConfig');

@@ -1,4 +1,6 @@
 {
+  // Background Jasmine spec build (CommonJS) compiling only test + source files needed for Node-based execution.
+  // Uses *.bg-spec.ts naming to avoid accidental inclusion in production build.
   "extends": "./tsconfig.background.json",
   "compilerOptions": {
     "outDir": "./out-tsc/background-spec",
@@ -11,6 +13,7 @@
   "include": [
     "src/background/**/*.ts",
     "src/background/__tests__/**/*.bg-spec.ts",
+    "src/background/__tests__/test-helpers/**/*.ts",
     "src/types/**/*.d.ts"
   ]
 }

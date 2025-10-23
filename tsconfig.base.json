@@ -1,9 +1,11 @@
 {
+  // Shared base compiler options for all sub-projects (UI, background, harness, tests).
+  // Individual tsconfigs extend this and adjust module system / types as needed.
   "compilerOptions": {
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
-  // (Removed composite/incremental) Angular & direct tsc builds are small; avoiding declaration emit requirement.
+    // (Removed composite/incremental) Angular & direct tsc builds are small; avoiding declaration emit requirement.
     "strict": true,
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,

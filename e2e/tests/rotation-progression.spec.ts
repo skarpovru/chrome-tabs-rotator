@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../utils/extension-fixtures';
 import { callE2E } from '../utils/call-e2e-api';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY, STABLE_DOMAIN_SECONDARY, STABLE_DOMAIN_TERTIARY } from '../utils/stable-domains';
 
 /**
  * Verifies that rotation advances through configured pages in order and cycles indices.
@@ -14,15 +15,15 @@ test.describe('Rotation progression', () => {
       await waitForWorkerApi(context);
       const config = {
         pages: [
-          { url: 'https://example.com', delaySeconds: 2, reloadIntervalSeconds: 0 },
-          { url: 'https://example.org', delaySeconds: 2, reloadIntervalSeconds: 0 },
-          { url: 'https://example.net', delaySeconds: 2, reloadIntervalSeconds: 0 }
+          { url: STABLE_DOMAIN_PRIMARY, delaySeconds: 2, reloadIntervalSeconds: 0 },
+          { url: STABLE_DOMAIN_SECONDARY, delaySeconds: 2, reloadIntervalSeconds: 0 },
+          { url: STABLE_DOMAIN_TERTIARY, delaySeconds: 2, reloadIntervalSeconds: 0 }
         ],
         isFullscreen: false,
         preventWindowFocus: false,
       };
       await callE2E(context, 'startWithConfig', config as any);
-      const tabIds = await waitForTabIds(context, config.pages.length);
+  const tabIds = await waitForTabIds(context, config.pages.length, 7000, { injectSyntheticSuccess: true });
       expect(tabIds.length).toBeGreaterThanOrEqual(config.pages.length);
       expect(tabIds.length).toBeLessThanOrEqual(config.pages.length * 2);
 

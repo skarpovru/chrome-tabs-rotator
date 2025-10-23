@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../utils/extension-fixtures';
 import { callE2E } from '../utils/call-e2e-api';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY } from '../utils/stable-domains';
 
 /**
  * Large ordering preservation test (15 pages)
@@ -15,14 +16,14 @@ test.describe('Ordering preservation (large)', () => {
     await waitForWorkerApi(context);
 
     const pages = Array.from({ length: 15 }, (_, i) => ({
-      url: `https://example.com/page-${i+1}`,
+      url: `${STABLE_DOMAIN_PRIMARY}/page-${i+1}`,
       delaySeconds: (i % 4) + 2,
       reloadIntervalSeconds: (i % 5) ? 0 : 11
     }));
 
     const cfg: any = { pages, isFullscreen: false, preventWindowFocus: false };
     await callE2E(context, 'startWithConfig', cfg);
-    await waitForTabIds(context, pages.length);
+  await waitForTabIds(context, pages.length, 10000, { injectSyntheticSuccess: true });
 
     const orderedUrlsResp: any = await callE2E(context, 'getOrderedUrls');
     expect(orderedUrlsResp.ok).toBeTruthy();

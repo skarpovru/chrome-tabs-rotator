@@ -1,4 +1,6 @@
 {
+  // Angular/Karma UI + shared specs build config.
+  // Excludes background scripts (they have their own spec build).
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./out-tsc/spec-app",

@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../utils/extension-fixtures';
 import { callE2E as callApi } from '../utils/call-e2e-api';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY } from '../utils/stable-domains';
 
 /**
  * Ensures rotation continues (no infinite activation retry) after a user manually closes
@@ -12,12 +13,12 @@ test.describe('Manual close recovery', () => {
     const { context } = ext;
     await waitForWorkerApi(context);
     const cfg = { pages: [
-      { url: 'https://example.com/1', delaySeconds: 2, reloadIntervalSeconds: 0 },
-      { url: 'https://example.com/2', delaySeconds: 2, reloadIntervalSeconds: 0 },
-      { url: 'https://example.com/3', delaySeconds: 2, reloadIntervalSeconds: 0 }
+      { url: STABLE_DOMAIN_PRIMARY + '/1', delaySeconds: 2, reloadIntervalSeconds: 0 },
+      { url: STABLE_DOMAIN_PRIMARY + '/2', delaySeconds: 2, reloadIntervalSeconds: 0 },
+      { url: STABLE_DOMAIN_PRIMARY + '/3', delaySeconds: 2, reloadIntervalSeconds: 0 }
     ], isFullscreen: false, preventWindowFocus: false } as any;
     await callApi(context, 'startWithConfig', cfg);
-    await waitForTabIds(context, cfg.pages.length);
+  await waitForTabIds(context, cfg.pages.length, 8000, { injectSyntheticSuccess: true });
 
     // Drive rotation to index 1
     await callApi(context, 'rotateOnce');

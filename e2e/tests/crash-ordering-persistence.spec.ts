@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../utils/extension-fixtures';
 import { callE2E } from '../utils/call-e2e-api';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY } from '../utils/stable-domains';
 
 /**
  * Crash Ordering Persistence Test
@@ -15,16 +16,16 @@ test.describe('Crash ordering persistence', () => {
     await waitForWorkerApi(context);
     const cfg: any = {
       pages: [
-        { url: 'https://crash-order.test/a', delaySeconds: 1 },
-        { url: 'https://crash-order.test/b', delaySeconds: 1 },
-        { url: 'https://crash-order.test/c', delaySeconds: 2 },
-        { url: 'https://crash-order.test/d', delaySeconds: 1 }
+  { url: STABLE_DOMAIN_PRIMARY + '/crash-order-a', delaySeconds: 1 },
+  { url: STABLE_DOMAIN_PRIMARY + '/crash-order-b', delaySeconds: 1 },
+  { url: STABLE_DOMAIN_PRIMARY + '/crash-order-c', delaySeconds: 2 },
+  { url: STABLE_DOMAIN_PRIMARY + '/crash-order-d', delaySeconds: 1 }
       ],
       isFullscreen: false,
       preventWindowFocus: false
     };
     await callE2E(context, 'startWithConfig', cfg);
-    await waitForTabIds(context, cfg.pages.length);
+  await waitForTabIds(context, cfg.pages.length, 8000, { injectSyntheticSuccess: true });
 
     // Canonical order from harness
     const orderedResp: any = await callE2E(context, 'getOrderedUrls');

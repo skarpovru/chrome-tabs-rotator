@@ -1,4 +1,5 @@
 {
+  // Node harness build (manual scripts / exploratory runs). CommonJS simplifies requiring compiled background logic.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist/harness",

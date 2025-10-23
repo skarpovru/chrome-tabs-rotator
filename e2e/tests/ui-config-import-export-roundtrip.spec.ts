@@ -1,4 +1,5 @@
 import { test, expect } from '../utils/extension-fixtures';
+import { pollLocalConfig } from '../utils/storage-helpers';
 
 // Round trip: import config via file, then export and verify exported JSON matches imported.
 
@@ -43,9 +44,11 @@ test.describe('UI Local Config Import/Export Round Trip', () => {
     const urls = await page.locator('app-config-editor input[type="text"]').evaluateAll(nodes => nodes.map(n => (n as HTMLInputElement).value));
     expect(urls).toEqual(expect.arrayContaining(['https://round.example/one','https://round.example/two']));
 
-    // Export and capture
-    const exportBtn = page.getByRole('button', { name: /^Export$/ });
-    await expect(exportBtn).toBeVisible();
+  // Wait for localConfig persisted (ensures Export gating stable)
+  await pollLocalConfig(page, cfg => !!cfg && Array.isArray(cfg.pages) && cfg.pages.length === 2);
+  // Export and capture
+  const exportBtn = page.getByRole('button', { name: /^Export$/ });
+  await expect(exportBtn).toBeVisible({ timeout: 5000 });
     await exportBtn.click();
     await page.waitForFunction(() => (window as any).__exportCapture.calls.length > 0, { timeout: 5000 });
     const captured = await page.evaluate(() => (window as any).__exportCapture.calls[0]);

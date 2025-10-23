@@ -3,6 +3,7 @@ import { test } from '../utils/extension-fixtures';
 import { callE2E as callApi } from '../utils/call-e2e-api';
 import { simulateServiceWorkerRestart } from '../utils/launch-extension';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY } from '../utils/stable-domains';
 
 /**
  * Validates that after a service worker restart, preload tabs are recreated (warmPreloads).
@@ -12,11 +13,11 @@ test.describe('Preload restoration after restart', () => {
     const { context } = ext;
     await waitForWorkerApi(context);
     const cfg = { pages: [
-      { url: 'https://example.com/p1', delaySeconds: 3, reloadIntervalSeconds: 0 },
-      { url: 'https://example.com/p2', delaySeconds: 3, reloadIntervalSeconds: 0 }
+  { url: STABLE_DOMAIN_PRIMARY + '/p1', delaySeconds: 3, reloadIntervalSeconds: 0 },
+  { url: STABLE_DOMAIN_PRIMARY + '/p2', delaySeconds: 3, reloadIntervalSeconds: 0 }
     ], isFullscreen: false, preventWindowFocus: false } as any;
     await callApi(context, 'startWithConfig', cfg);
-    await waitForTabIds(context, cfg.pages.length);
+  await waitForTabIds(context, cfg.pages.length, 8000, { injectSyntheticSuccess: true });
 
     // Capture initial tabs config (may or may not yet have nextTabId if warmPreloads pending)
     let beforeCfg: any = await callApi(context, 'getTabsConfig');

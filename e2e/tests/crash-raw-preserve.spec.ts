@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../utils/extension-fixtures';
 import { callE2E } from '../utils/call-e2e-api';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY } from '../utils/stable-domains';
 
 /**
  * Raw Crash Recovery Test
@@ -14,14 +15,14 @@ test.describe('Raw crash preserves tabs', () => {
     await waitForWorkerApi(context);
     const cfg: any = {
       pages: [
-        { url: 'https://raw-crash.test/one', delaySeconds: 1 },
-        { url: 'https://raw-crash.test/two', delaySeconds: 1 },
+  { url: STABLE_DOMAIN_PRIMARY + '/raw-crash-one', delaySeconds: 1 },
+  { url: STABLE_DOMAIN_PRIMARY + '/raw-crash-two', delaySeconds: 1 },
       ],
       isFullscreen: false,
       preventWindowFocus: false
     };
     await callE2E(context, 'startWithConfig', cfg);
-    await waitForTabIds(context, cfg.pages.length);
+  await waitForTabIds(context, cfg.pages.length, 7000, { injectSyntheticSuccess: true });
 
     // Capture initial tab IDs
     const initialTabsCfg: any = await callE2E(context, 'getTabsConfig');

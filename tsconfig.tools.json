@@ -1,4 +1,5 @@
 {
+  // Tooling / configuration TS (noEmit). Includes playwright config + build scripts.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,

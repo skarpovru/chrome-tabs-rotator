@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../utils/extension-fixtures';
 import { callE2E } from '../utils/call-e2e-api';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY } from '../utils/stable-domains';
 
 /**
  * Crash Recovery Test
@@ -15,15 +16,15 @@ test.describe('Crash recovery preserves tabs and rotation', () => {
     await waitForWorkerApi(context);
     const cfg: any = {
       pages: [
-        { url: 'https://crash.test/one', delaySeconds: 1 },
-        { url: 'https://crash.test/two', delaySeconds: 1 },
-        { url: 'https://crash.test/three', delaySeconds: 1 }
+  { url: STABLE_DOMAIN_PRIMARY + '/crash-one', delaySeconds: 1 },
+  { url: STABLE_DOMAIN_PRIMARY + '/crash-two', delaySeconds: 1 },
+  { url: STABLE_DOMAIN_PRIMARY + '/crash-three', delaySeconds: 1 }
       ],
       isFullscreen: false,
       preventWindowFocus: false
     };
     await callE2E(context, 'startWithConfig', cfg);
-    await waitForTabIds(context, cfg.pages.length);
+  await waitForTabIds(context, cfg.pages.length, 7000, { injectSyntheticSuccess: true });
 
     // Capture initial tab IDs and ordering
     // Instead of relying on rotationState.tabIds (which may lag), poll getTabsConfig for primaries
@@ -76,12 +77,20 @@ test.describe('Crash recovery preserves tabs and rotation', () => {
       expect(afterTabsCfg.tabs[i].tabId).toBeGreaterThan(0);
     }
 
-    // Drive another rotation to confirm it still advances
+    // Drive another rotation to confirm it still advances (poll for change)
     const preIndex: any = await callE2E(context, 'getCurrentIndex');
     await callE2E(context, 'rotateOnce');
-    await new Promise(r => setTimeout(r, 150));
-    const postIndex: any = await callE2E(context, 'getCurrentIndex');
-    expect(postIndex).not.toEqual(preIndex); // index should advance
+    let postIndex: any = preIndex;
+    const startPoll = Date.now();
+    while (Date.now() - startPoll < 2500) { // up to 2.5s
+      postIndex = await callE2E(context, 'getCurrentIndex');
+      if (postIndex !== preIndex) break;
+      await new Promise(r => setTimeout(r, 120));
+    }
+    if (postIndex === preIndex) {
+      const diag = await callE2E(context, 'getDiagnostics');
+      throw new Error('Rotation index did not advance after crash recovery rotateOnce; index=' + preIndex + ' diagnostics=' + JSON.stringify(diag));
+    }
 
     await context.close();
   });

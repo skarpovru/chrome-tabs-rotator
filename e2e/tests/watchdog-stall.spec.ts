@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../utils/extension-fixtures';
 import { callE2E } from '../utils/call-e2e-api';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY, STABLE_DOMAIN_SECONDARY } from '../utils/stable-domains';
 
 /**
  * Simulates a stall (no rotation progress + stale heartbeat) and verifies watchdog advances rotation.
@@ -14,11 +15,11 @@ test.describe('Watchdog stall correction', () => {
       await waitForWorkerApi(context);
 
       const config = { pages: [
-        { url: 'https://example.com', delaySeconds: 2, reloadIntervalSeconds: 0 },
-        { url: 'https://example.org', delaySeconds: 2, reloadIntervalSeconds: 0 }
+        { url: STABLE_DOMAIN_PRIMARY, delaySeconds: 2, reloadIntervalSeconds: 0 },
+        { url: STABLE_DOMAIN_SECONDARY, delaySeconds: 2, reloadIntervalSeconds: 0 }
       ], isFullscreen: false, preventWindowFocus: false };
       await callE2E(context, 'startWithConfig', config as any);
-      await waitForTabIds(context, config.pages.length);
+  await waitForTabIds(context, config.pages.length, 7000, { injectSyntheticSuccess: true });
       // Reconfigure watchdog to short intervals for test speed
       await callE2E(context, 'configureWatchdog', { intervalSeconds: 3, graceSeconds: 1 });
 

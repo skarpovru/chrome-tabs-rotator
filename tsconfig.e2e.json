@@ -1,4 +1,6 @@
 {
+  // Playwright E2E tests build config (CommonJS for Node execution environment).
+  // Includes test utilities + specs under e2e/ only.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2022",

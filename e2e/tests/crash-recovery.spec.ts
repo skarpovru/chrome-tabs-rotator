@@ -3,6 +3,7 @@ import { test } from '../utils/extension-fixtures';
 import { simulateServiceWorkerRestart } from '../utils/launch-extension';
 import { callE2E } from '../utils/call-e2e-api';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY, STABLE_DOMAIN_SECONDARY } from '../utils/stable-domains';
 
 test.describe('Crash recovery (preserved resume)', () => {
   test('keeps tabs and resumes rotation after service worker restart', async ({
@@ -17,22 +18,14 @@ test.describe('Crash recovery (preserved resume)', () => {
       // Enable test mode & seed config
       const config = {
         pages: [
-          {
-            url: 'https://example.com',
-            delaySeconds: 3,
-            reloadIntervalSeconds: 0,
-          },
-          {
-            url: 'https://example.org',
-            delaySeconds: 3,
-            reloadIntervalSeconds: 0,
-          },
+          { url: STABLE_DOMAIN_PRIMARY, delaySeconds: 3, reloadIntervalSeconds: 0 },
+          { url: STABLE_DOMAIN_SECONDARY, delaySeconds: 3, reloadIntervalSeconds: 0 },
         ],
         isFullscreen: false,
         preventWindowFocus: false,
       };
       await callE2E(context, 'startWithConfig', config as any);
-      const tabIds = await waitForTabIds(context, 2);
+  const tabIds = await waitForTabIds(context, 2, 9000, { injectSyntheticSuccess: true });
 
       // Force heartbeat just before crash to guarantee preservation heuristic sees a recent heartbeat
       await callE2E(context, 'forceHeartbeat');

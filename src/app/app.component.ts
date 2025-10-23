@@ -5,6 +5,7 @@ import {
   Component,
   OnInit,
   OnDestroy,
+  HostBinding,
 } from '@angular/core';
 import { ConfigEditorComponent } from './config-editor/config-editor.component';
 import { safeRuntimeSend } from '../shared';
@@ -38,6 +39,8 @@ export class AppComponent implements OnInit, OnDestroy {
   isRotationDisabled: boolean = false;
   allowFileSchemeAccessMessage: boolean = false;
   importError?: string; // surfaced when local import fails validation or parsing
+  // Cached export gating flag (avoids timing races with *ngIf calling a method under OnPush)
+  canExportLocalConfig: boolean = false;
 
   // Diagnostics
   showDiagnostics = false;
@@ -49,6 +52,11 @@ export class AppComponent implements OnInit, OnDestroy {
     private configLoaderService: ConfigLoaderService,
     private countdownState: CountdownStateService
   ) {}
+
+  // Stable host attribute that mirrors export button visibility conditions for E2E tests.
+  @HostBinding('attr.data-exportable') get dataExportableAttr() {
+    return (!this.useRemoteConfig && this.canExportLocalConfig) ? 'true' : 'false';
+  }
 
   ngOnInit() {
   void this.loadStoredAppConfig();
@@ -72,6 +80,20 @@ export class AppComponent implements OnInit, OnDestroy {
         this.cdr.markForCheck();
       }
     });
+
+    // Listen for external storage changes to localConfig that might occur outside this component.
+    try {
+      chrome.storage.onChanged.addListener((changes: any, area: string) => {
+        if (area === 'local' && changes?.[StorageKeys.LocalConfig]) {
+          try {
+            this.localConfig = changes[StorageKeys.LocalConfig].newValue;
+            this.canExportLocalConfig = this.hasExportableLocalConfig();
+            (window as any).__canExportFlag = this.canExportLocalConfig;
+            this.cdr.detectChanges();
+          } catch {}
+        }
+      });
+    } catch {}
   }
 
   startRotation() {
@@ -172,11 +194,27 @@ export class AppComponent implements OnInit, OnDestroy {
         });
       }
     } catch {}
-    chrome.storage.local.set({ [StorageKeys.LocalConfig]: localConfig }, () => {
-      this.localConfig = localConfig;
-      console.debug('Local configuration saved', localConfig);
-      onChanged?.();
+    // Set synchronously to avoid race with *ngIf
+    this.localConfig = localConfig;
+  try { this.canExportLocalConfig = this.hasExportableLocalConfig(); } catch { this.canExportLocalConfig = false; }
+  try { (window as any).__canExportFlag = this.canExportLocalConfig; } catch {}
+    // Schedule microtask recompute to catch any late form normalization changes
+    queueMicrotask(() => {
+      try {
+        const recalced = this.hasExportableLocalConfig();
+        if (recalced !== this.canExportLocalConfig) {
+          this.canExportLocalConfig = recalced;
+          try { (window as any).__canExportFlag = this.canExportLocalConfig; } catch {}
+          this.cdr.detectChanges();
+        }
+      } catch {}
     });
+    // Persist asynchronously; UI already updated
+    chrome.storage.local.set({ [StorageKeys.LocalConfig]: localConfig }, () => {
+      console.debug('Local configuration saved', localConfig);
+    });
+    try { this.cdr.detectChanges(); } catch {}
+    onChanged?.();
   }
 
   onChangeRemoteSettings(remoteSettings: RemoteSettings) {
@@ -239,6 +277,18 @@ export class AppComponent implements OnInit, OnDestroy {
       this.localConfig =
         (result?.[StorageKeys.LocalConfig] as ConfigData) || new ConfigData();
       console.debug('Local configuration loaded', this.localConfig);
+      try { this.canExportLocalConfig = this.hasExportableLocalConfig(); } catch { this.canExportLocalConfig = false; }
+      try { (window as any).__canExportFlag = this.canExportLocalConfig; } catch {}
+      queueMicrotask(() => {
+        try {
+          const late = this.hasExportableLocalConfig();
+          if (late !== this.canExportLocalConfig) {
+            this.canExportLocalConfig = late;
+            try { (window as any).__canExportFlag = this.canExportLocalConfig; } catch {}
+            this.cdr.detectChanges();
+          }
+        } catch {}
+      });
       this.cdr.detectChanges();
     });
   }
@@ -257,6 +307,10 @@ export class AppComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     try {
       this.countdownSub?.unsubscribe();
+    } catch {}
+    // Best-effort cleanup of listener (avoid leaks in dev/hot reload scenarios)
+    try {
+      chrome.storage.onChanged.removeListener(() => {}); // No-op removal; in MV3 tests listener lifecycle ends with page.
     } catch {}
   }
 

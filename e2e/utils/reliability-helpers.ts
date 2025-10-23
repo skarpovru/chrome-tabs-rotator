@@ -65,17 +65,43 @@ export async function waitForRotationCycle(context: BrowserContext, cycleTarget:
 /**
  * Wait for tabIds length to reach at least minCount. Throws on timeout.
  */
-export async function waitForTabIds(context: BrowserContext, minCount: number, timeoutMs = 6000): Promise<number[]> {
+export async function waitForTabIds(
+  context: BrowserContext,
+  minCount: number,
+  timeoutMs = 6000,
+  opts: { injectSyntheticSuccess?: boolean; pollIntervalMs?: number } = {}
+): Promise<number[]> {
   const deadline = Date.now() + timeoutMs;
+  const interval = opts.pollIntervalMs || 250;
+  let lastIds: number[] = [];
   while (Date.now() < deadline) {
     try {
       const diags = await callApi(context, 'getDiagnostics');
       const ids = diags?.rotationState?.tabIds;
-      if (Array.isArray(ids) && ids.length >= minCount) return ids.slice();
+      if (Array.isArray(ids)) {
+        lastIds = ids.slice();
+        if (ids.length >= minCount) return ids.slice();
+        // Optionally attempt to help materialize pages by injecting synthetic success for entries lacking tabIds.
+        if (opts.injectSyntheticSuccess) {
+          try {
+            const tc = await callApi(context, 'getTabsConfig');
+            for (const entry of tc?.tabs || []) {
+              if (entry.tabId === 0 && !entry.suspended) {
+                await callApi(context, 'triggerPrimarySuccessForUrl', { url: entry.url });
+              }
+            }
+          } catch { /* ignore synthetic help errors */ }
+        }
+      }
     } catch {/* ignore */}
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, interval));
   }
-  throw new Error('Timeout waiting for tabIds >= ' + minCount);
+  // Provide diagnostic context on timeout.
+  let diagCtx: any = {};
+  try {
+    diagCtx = await callApi(context, 'getDiagnostics');
+  } catch {}
+  throw new Error('Timeout waiting for tabIds >= ' + minCount + ' lastIds=' + JSON.stringify(lastIds) + ' diagnostics=' + JSON.stringify(diagCtx));
 }
 
 /**

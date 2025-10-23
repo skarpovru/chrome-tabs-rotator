@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../utils/extension-fixtures';
 import { callE2E } from '../utils/call-e2e-api';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY, STABLE_DOMAIN_SECONDARY } from '../utils/stable-domains';
 
 // Uses navigation completion counts (test-only harness) to assert reload interval behavior
 test.describe('Reload interval', () => {
@@ -10,14 +11,14 @@ test.describe('Reload interval', () => {
     try {
       await waitForWorkerApi(context);
       const fastReloadSeconds = 8;
-      const reloadUrl = 'https://example.com/?reload=1';
-      const normalUrl = 'https://example.org/?reload=0';
+  const reloadUrl = STABLE_DOMAIN_PRIMARY + '/?reload=1';
+  const normalUrl = STABLE_DOMAIN_SECONDARY + '/?reload=0';
       const config = { pages: [
         { url: reloadUrl, delaySeconds: 2, reloadIntervalSeconds: fastReloadSeconds },
         { url: normalUrl, delaySeconds: 2, reloadIntervalSeconds: 0 }
       ], isFullscreen: false, preventWindowFocus: false };
       await callE2E(context, 'startWithConfig', config as any);
-      await waitForTabIds(context, config.pages.length);
+  await waitForTabIds(context, config.pages.length, 7000, { injectSyntheticSuccess: true });
 
       // Drive a few rotations deterministically (fallback to advanceIndex if rotateOnce has no effect)
       for (let i=0;i<4;i++) {

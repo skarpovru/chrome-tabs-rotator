@@ -14,7 +14,9 @@
         Import
       </button>
       <button
-        *ngIf="!useRemoteConfig && hasExportableLocalConfig()"
+        *ngIf="!useRemoteConfig && canExportLocalConfig"
+        data-testid="export-config-btn"
+        aria-label="Export"
         class="px-4 py-2 rounded-sm shadow-md transition duration-300 ease-in-out bg-secondary text-primary hover:bg-secondary-600"
         (click)="onExportLocalConfig()"
       >

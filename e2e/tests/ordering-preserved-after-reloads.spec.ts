@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import { test } from '../utils/extension-fixtures';
 import { callE2E } from '../utils/call-e2e-api';
 import { waitForWorkerApi, waitForTabIds } from '../utils/reliability-helpers';
+import { STABLE_DOMAIN_PRIMARY, STABLE_DOMAIN_SECONDARY, STABLE_DOMAIN_TERTIARY, STABLE_DOMAIN_QUATERNARY } from '../utils/stable-domains';
 
 /**
  * Ordering preservation e2e test
@@ -25,18 +26,18 @@ test.describe('Ordering preservation', () => {
 
     const config = {
       pages: [
-        { url: 'https://example.com/a', delaySeconds: 2, reloadIntervalSeconds: 7 },
-        { url: 'https://example.com/b', delaySeconds: 3, reloadIntervalSeconds: 0 },
-        { url: 'https://example.net/c', delaySeconds: 2, reloadIntervalSeconds: 5 },
-        { url: 'https://example.org/d', delaySeconds: 4, reloadIntervalSeconds: 9 },
-        { url: 'https://example.io/e', delaySeconds: 2, reloadIntervalSeconds: 0 }
+  { url: STABLE_DOMAIN_PRIMARY + '/a', delaySeconds: 2, reloadIntervalSeconds: 7 },
+  { url: STABLE_DOMAIN_PRIMARY + '/b', delaySeconds: 3, reloadIntervalSeconds: 0 },
+  { url: STABLE_DOMAIN_TERTIARY + '/c', delaySeconds: 2, reloadIntervalSeconds: 5 },
+  { url: STABLE_DOMAIN_SECONDARY + '/d', delaySeconds: 4, reloadIntervalSeconds: 9 },
+  { url: STABLE_DOMAIN_QUATERNARY + '/e', delaySeconds: 2, reloadIntervalSeconds: 0 }
       ],
       isFullscreen: false,
       preventWindowFocus: false
     } as any;
 
     await callE2E(context, 'startWithConfig', config);
-    await waitForTabIds(context, config.pages.length);
+  await waitForTabIds(context, config.pages.length, 9000, { injectSyntheticSuccess: true });
 
   const initialConfigOrder = config.pages.map((p: { url: string }) => p.url);
 

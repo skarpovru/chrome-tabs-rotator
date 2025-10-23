@@ -1,5 +1,5 @@
-/* To learn more about Typescript configuration file: https://www.typescriptlang.org/docs/handbook/tsconfig-json.html. */
-/* To learn more about Angular compiler options: https://angular.dev/reference/configs/angular-compiler-options. */
+/* Angular application build config. Excludes all *.spec.ts test files (UI tests build via tsconfig.spec.app.json). */
+/* Includes manifest/entry + any shared declaration files. Background logic builds separately; only minimal d.ts references here. */
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
@@ -9,7 +9,7 @@
   "include": [
     "src/app/**/*.ts",
     "src/main.ts",
-  "src/styles.source.css",
+    "src/styles.source.css",
     "src/index.html",
     "src/background/background.ts",
     "src/background/**/*.d.ts",

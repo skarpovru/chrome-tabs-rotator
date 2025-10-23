@@ -1,4 +1,5 @@
 import { test, expect } from '../utils/extension-fixtures';
+import { pollLocalConfig } from '../utils/storage-helpers';
 // MV3 global chrome declared for TS
 declare const chrome: any;
 
@@ -25,7 +26,8 @@ test.describe('UI Local Config Export Visibility', () => {
     const saveBtn = page.getByRole('button', { name: 'Save Configuration' });
     await expect(saveBtn).toBeVisible();
     await saveBtn.click();
-    // Export button appears after save
+    // Wait for localConfig persisted
+    await pollLocalConfig(page, cfg => !!cfg && Array.isArray(cfg.pages) && cfg.pages.length > 0);
     await expect(page.getByRole('button', { name: /^Export$/ })).toBeVisible({ timeout: 5000 });
   });
 });

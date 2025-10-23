@@ -7,7 +7,7 @@
     (ngSubmit)="onLoadConfig($event)"
     class="flex flex-col w-full gap-2"
   >
-    <table class="table-auto w-full">
+  <table class="table-auto w-full" data-testid="remote-config-load-form">
       <thead>
         <tr>
           <th class="min-w-100">Configuration URL</th>
@@ -98,7 +98,7 @@
     </span>
   </div>
 
-  <table class="table-auto w-full" *ngIf="configData">
+  <table class="table-auto w-full" *ngIf="configData" data-testid="remote-config-data-table">
     <thead>
       <tr>
         <th class="min-w-100">URL</th>

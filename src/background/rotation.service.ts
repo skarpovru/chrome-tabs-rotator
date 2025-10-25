@@ -1249,9 +1249,10 @@ export class RotationService {
       tabConfig.deferredReloadDue = false;
       return;
     }
-    // For local file URLs, reload in place only
+    // Configurable: legacy in-place reload for local file URLs only if reuseLocalFileTabs enabled
     const isFileUrl = tabConfig.page?.url?.startsWith('file:');
-    if (isFileUrl) {
+    const reuseLocal = !!this.currentConfig?.reuseLocalFileTabs;
+    if (isFileUrl && reuseLocal) {
       tabConfig.deferredReloadDue = false;
       try {
         await chrome.tabs.reload(tabId);
@@ -1304,7 +1305,8 @@ export class RotationService {
         },
         async () => {
           await this.enforceInvariant();
-        }
+        },
+        { reuseLocalFileTabs: reuseLocal }
       );
       // Do NOT activate the new tab immediately. Wait for preload to complete.
       // Promotion to primary and activation will happen in rotateTabs if preload is successful.
@@ -2013,8 +2015,9 @@ export class RotationService {
         }
       }
       // Preload promotion logic for web URLs (background-only promotion: no forced activation)
-      const isFileUrl = currentTab.page?.url?.startsWith('file:');
-      if (!isFileUrl && currentTab.nextTabId > 0) {
+  const isFileUrl2 = currentTab.page?.url?.startsWith('file:');
+  const reuseLocal2 = !!this.currentConfig?.reuseLocalFileTabs;
+  if (!(isFileUrl2 && reuseLocal2) && currentTab.nextTabId > 0) {
         const preloadTab = await chrome.tabs
           .get(currentTab.nextTabId)
           .catch(() => undefined);
@@ -2064,7 +2067,7 @@ export class RotationService {
         }
         // Fallback safeguard: if promotion path was skipped (e.g., transient readiness change) but preload is still ready, promote now.
         if (
-          !isFileUrl &&
+          !(isFileUrl2 && reuseLocal2) &&
           currentTab.nextTabId > 0 &&
           currentTab.nextTabIdReady &&
           !currentTab.suspended
@@ -2072,7 +2075,7 @@ export class RotationService {
           await this.promotePreloadNoActivate(currentTab);
         }
       } else {
-        // File URLs or no preload: activate current tab
+        // File URLs with reuseLocalFileTabs enabled OR no preload: activate current tab
         const targetId = currentTab.tabId > 0 ? currentTab.tabId : 0;
         if (targetId > 0) {
           const ok = await this.activationService.activateTabWithFallback(
@@ -2944,7 +2947,8 @@ export class RotationService {
       }
       // Policy: skip if preloads disabled for this tab or file:// scheme
       const scheme = tabCfg.page?.url?.split(':')[0];
-      if (tabCfg.preloadDisabled || scheme === 'file') {
+      const reuseLocalWarm = !!this.currentConfig?.reuseLocalFileTabs;
+      if (tabCfg.preloadDisabled || (reuseLocalWarm && scheme === 'file')) {
         skippedPolicy++;
         if (this.debugActivationLogging)
           console.debug('[rotator][warmPreloads] skip (policy)', {

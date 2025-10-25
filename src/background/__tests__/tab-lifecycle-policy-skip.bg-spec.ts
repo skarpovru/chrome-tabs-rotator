@@ -8,7 +8,7 @@ import { TabConfig, TabsConfig, PageConfig } from '../../app/models';
 /**
  * Verifies that file:// scheme pages are skipped for preload creation and primary is reloaded instead.
  */
-describe('TabLifecycleService preload policy (file scheme skip)', () => {
+describe('TabLifecycleService preload policy (file scheme behavior)', () => {
   let lifecycle: TabLifecycleService; let tabManager: TabManagerService; let scheduler: SchedulerService; let metrics: MetricsService;
   let created: number[] = []; let reloaded: number[] = []; let removed: number[] = [];
 
@@ -30,13 +30,13 @@ describe('TabLifecycleService preload policy (file scheme skip)', () => {
     lifecycle = new TabLifecycleService(tabManager, scheduler, metrics);
   });
 
-  it('does not create preload for file:// page', async () => {
+  it('does not create preload for file:// page when reuseLocalFileTabs=true', async () => {
     const page: PageConfig = { url: 'file:///C:/local/page1.html', delaySeconds: 5, reloadIntervalSeconds: 60 } as any;
     const cfg = new TabConfig({ page, active: true });
     cfg.tabId = 501; cfg.tabIdReady = true;
     const tabsConfig = new TabsConfig(); tabsConfig.tabs.push(cfg);
 
-    await lifecycle.handleReloadAlarm(501, tabsConfig, async () => {}, async () => {}, async () => {});
+    await lifecycle.handleReloadAlarm(501, tabsConfig, async () => {}, async () => {}, async () => {}, { reuseLocalFileTabs: true });
 
     // Expect no preload tab creation attempt (create unused) and a fallback reload of primary
     expect(created.length).toBe(0);

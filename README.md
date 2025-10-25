@@ -174,6 +174,7 @@ These optional controls help tune behavior for signage / unattended scenarios:
 - **Remote Reload Interval**: Defines how often (in minutes) the remote JSON config is re-fetched. Set to `0` to disable automatic refresh but still perform an initial load.
 - **Force rotate (Diagnostics)**: Manually advances to the next page immediately; handy for testing or if you just updated a page.
 - **Watchdog Self-Heal**: Internal mechanism that restarts rotation if the scheduled alarm was missed (no UI toggle; always on).
+- **reuseLocalFileTabs** (`reuseLocalFileTabs`): When `true`, `file://` pages use legacy in-place reload (no hidden preload). When `false` (default / omitted) they behave like normal web pages and get a hidden preload tab first for faster promotion of heavy local dashboards.
 
 Minimal example with advanced keys:
 
@@ -181,7 +182,8 @@ Minimal example with advanced keys:
 {
   "pages": [{ "url": "https://example.com/dashboard", "delaySeconds": 20, "reloadIntervalSeconds": 300 }],
   "isFullscreen": false,
-  "preventWindowFocus": true
+  "preventWindowFocus": true,
+  "reuseLocalFileTabs": false
 }
 ```
 
@@ -190,7 +192,7 @@ Minimal example with advanced keys:
 ## Tips & Troubleshooting
 
 - **Local files don’t load (`file://`)**  
-  Enable **Allow access to file URLs** for the extension under `chrome://extensions/`.
+  Enable **Allow access to file URLs** for the extension under `chrome://extensions/`. To opt back into the older in-place reload behavior for local files, add `"reuseLocalFileTabs": true` to your configuration JSON.
 
 - **Some sites log out after a while**  
   Use the site’s "keep alive"/auto-refresh, increase per-page `reloadIntervalSeconds`, or keep a logged-in session.

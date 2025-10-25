@@ -16,8 +16,17 @@ export class ConfigData {
    */
   preventWindowFocus?: boolean;
 
+  /**
+   * When true, local `file://` pages use the legacy in-place reload strategy (no preload tab creation).
+   * When false (default), local file pages behave like normal web pages: a hidden preload tab is
+   * created to load a fresh copy before promotion, improving perceived freshness for heavy local pages.
+   */
+  reuseLocalFileTabs?: boolean;
+
 
   constructor(init?: Partial<ConfigData>) {
     Object.assign(this, init);
+    // Explicit default: unless user opt-in, treat local file pages like others (preload enabled)
+    if (this.reuseLocalFileTabs == null) this.reuseLocalFileTabs = false;
   }
 }

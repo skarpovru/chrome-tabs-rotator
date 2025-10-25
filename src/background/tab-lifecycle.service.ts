@@ -76,7 +76,8 @@ export class TabLifecycleService {
     tabsConfig: TabsConfig | undefined,
     createCb: (tc: TabConfig) => Promise<void>,
     setStateCb: (tabIds: number[]) => Promise<void>,
-    delegateInvariant: () => Promise<void>
+    delegateInvariant: () => Promise<void>,
+    opts?: { reuseLocalFileTabs?: boolean }
   ): Promise<void> {
     const tabConfig = tabsConfig?.tabs?.find(
       (t) => t.tabId === tabId || t.nextTabId === tabId
@@ -86,7 +87,8 @@ export class TabLifecycleService {
       // Policy: skip preload creation for file:// schemes or when explicitly disabled
       const scheme = tabConfig.page?.url?.split(':')[0];
       const skipPreloadPolicy =
-        scheme === 'file' || tabConfig.preloadDisabled === true;
+        ((opts?.reuseLocalFileTabs ?? false) && scheme === 'file') ||
+        tabConfig.preloadDisabled === true;
       // Simplified strategy:
       // 1. Always create a hidden preload (if one does not exist) for freshness instead of reloading primary directly.
       // 2. Wait briefly for its initial load completion (non-blocking timeout safety inside waitForInitialLoad).

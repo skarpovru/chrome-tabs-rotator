@@ -28,6 +28,9 @@ export class ConfigValidatorService {
     if (configData?.preventWindowFocus != null && typeof configData.preventWindowFocus !== 'boolean') {
       errors.push('preventWindowFocus must be boolean.');
     }
+    if (configData?.reuseLocalFileTabs != null && typeof configData.reuseLocalFileTabs !== 'boolean') {
+      errors.push('reuseLocalFileTabs must be boolean.');
+    }
 
     if (errors.length > 0) {
       throw new Error(`Validation failed: ${errors.join(' ')}`);

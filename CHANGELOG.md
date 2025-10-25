@@ -45,7 +45,7 @@
 - Added comprehensive Playwright E2E test suite.
 - Added transient storage failure resilience and large config scale scenarios.
 
-## [1.7] - 2025-10-23
+## [1.7] - 2025-10-25
 
 - Import configuration button now properly loads and validates JSON files; surfaced errors instead of silent failure. Added explicit error UI feedback.
 - Deferred reload: avoids reloading active tab until rotation switches away (unless only one tab).

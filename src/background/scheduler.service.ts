@@ -29,7 +29,9 @@ export class SchedulerService {
 
   async scheduleReload(tabId: number, delaySeconds: number): Promise<void> {
     if (!tabId || tabId <= 0) return;
-    await this.create(this.buildReloadAlarmName(tabId), { when: Date.now() + delaySeconds * 1000 });
+    await this.create(this.buildReloadAlarmName(tabId), {
+      when: Date.now() + delaySeconds * 1000,
+    });
   }
 
   async clearReload(tabId: number): Promise<void> {
@@ -43,37 +45,68 @@ export class SchedulerService {
   /** Create (or replace) a one-off or periodic alarm */
   async create(name: string, options: ScheduleOptions): Promise<void> {
     const { when, periodInMinutes } = options;
-  void chrome.alarms.create(name, { when, periodInMinutes }); // explicitly ignored
+    try {
+      void chrome?.alarms?.create?.(name, { when, periodInMinutes });
+    } catch {}
   }
 
   /** Convenience: schedule to fire after a delay (ms) */
   async scheduleIn(name: string, delayMs: number): Promise<void> {
-  void chrome.alarms.create(name, { when: Date.now() + Math.max(0, delayMs) }); // explicitly ignored
+    try {
+      void chrome?.alarms?.create?.(name, {
+        when: Date.now() + Math.max(0, delayMs),
+      });
+    } catch {}
   }
 
   /** Clear specific alarm */
   async clear(name: string): Promise<boolean> {
-    return await chrome.alarms.clear(name);
+    try {
+      return await chrome?.alarms?.clear?.(name);
+    } catch {
+      return false;
+    }
   }
 
   /** Clear all alarms whose name starts with the given prefix */
   async clearByPrefix(prefix: string): Promise<void> {
-    const all = await chrome.alarms.getAll();
-    await Promise.all(
-      all.filter(a => a.name.startsWith(prefix)).map(a => chrome.alarms.clear(a.name))
-    );
+    try {
+      const all = (await chrome?.alarms?.getAll?.()) || [];
+      await Promise.all(
+        all
+          .filter((a: any) => a?.name?.startsWith?.(prefix))
+          .map((a: any) => chrome?.alarms?.clear?.(a.name))
+      );
+    } catch {}
   }
 
   /** Retrieve a single alarm */
   async get(name: string): Promise<ScheduledAlarmInfo | undefined> {
-    const a = await chrome.alarms.get(name);
+    let a: any;
+    try {
+      a = await chrome?.alarms?.get?.(name);
+    } catch {
+      a = undefined;
+    }
     if (!a) return undefined;
-    return { name: a.name, scheduledTime: a.scheduledTime, periodInMinutes: a.periodInMinutes };
+    return {
+      name: a.name,
+      scheduledTime: a.scheduledTime,
+      periodInMinutes: a.periodInMinutes,
+    };
   }
 
   /** Retrieve all alarms */
   async getAll(): Promise<ScheduledAlarmInfo[]> {
-    const all = await chrome.alarms.getAll();
-    return all.map(a => ({ name: a.name, scheduledTime: a.scheduledTime, periodInMinutes: a.periodInMinutes }));
+    try {
+      const all = (await chrome?.alarms?.getAll?.()) || [];
+      return all.map((a: any) => ({
+        name: a.name,
+        scheduledTime: a.scheduledTime,
+        periodInMinutes: a.periodInMinutes,
+      }));
+    } catch {
+      return [];
+    }
   }
 }

@@ -55,7 +55,7 @@ export class TabConfig {
   lastPromotionAt?: number;
 
   /** If true the page is in error state and temporarily skipped in rotation until a successful load clears it. */
-  suspended?: boolean;
+  suspended: boolean = false;
 
   /** Timestamp of last handled navigation error (ms since epoch) for throttling duplicate error events. */
   lastErrorAt?: number;
@@ -124,5 +124,7 @@ export class TabConfig {
 
   constructor(init?: Partial<TabConfig>) {
     Object.assign(this, init);
+    // Normalize optional fields to explicit defaults expected by tests.
+    if (this.suspended == null) this.suspended = false;
   }
 }

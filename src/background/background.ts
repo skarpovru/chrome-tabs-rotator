@@ -14,6 +14,8 @@ const rotationService = new RotationService(
   configValidator,
   toolbarManagerService
 );
+// Passive auto-resume alarm name (persistent across SW lifecycles)
+const PASSIVE_RESUME_ALARM = 'passiveResume';
 try {
   (self as any).__e2eReady = false;
 } catch {}
@@ -49,20 +51,31 @@ try {
     rt.__suppressedErrorCount = 0;
     const original = rt.sendMessage?.bind(rt);
     if (typeof original === 'function') {
-      rt.sendMessage = function(...args: any[]) {
+      rt.sendMessage = function (...args: any[]) {
         const callback = args[args.length - 1];
         let hasCallback = typeof callback === 'function';
-        const wrappedCb = hasCallback ? function(resp: any) {
-          const err = rt.lastError;
-          if (err) {
-            rt.__suppressedErrorCount++;
-            // eslint-disable-next-line no-console
-            console.debug('[debug-sendMessage] lastError', err.message, { args: args.slice(0, hasCallback? args.length -1 : args.length) });
-          }
-          try { callback?.(resp); } catch {}
-        } : undefined;
+        const wrappedCb = hasCallback
+          ? function (resp: any) {
+              const err = rt.lastError;
+              if (err) {
+                rt.__suppressedErrorCount++;
+                // eslint-disable-next-line no-console
+                console.debug('[debug-sendMessage] lastError', err.message, {
+                  args: args.slice(
+                    0,
+                    hasCallback ? args.length - 1 : args.length
+                  ),
+                });
+              }
+              try {
+                callback?.(resp);
+              } catch {}
+            }
+          : undefined;
         try {
-          return original(...(hasCallback ? [...args.slice(0, -1), wrappedCb] : args));
+          return original(
+            ...(hasCallback ? [...args.slice(0, -1), wrappedCb] : args)
+          );
         } catch (e) {
           // eslint-disable-next-line no-console
           console.debug('[debug-sendMessage] synchronous throw', String(e));
@@ -72,7 +85,9 @@ try {
       rt.__debugWrappedSendMessage = true;
     }
   }
-} catch { /* ignore wrapper failures */ }
+} catch {
+  /* ignore wrapper failures */
+}
 
 async function attemptPreservedResume(context: 'onInstalled' | 'onStartup') {
   try {
@@ -126,6 +141,86 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   void attemptPreservedResume('onStartup');
 });
+
+// Passive resume: in some browsers / edge cases onStartup may not fire reliably or the SW may spin up
+// after state was saved but before any UI interaction. We schedule a lightweight alarm that attempts
+// to reinitialize rotation (preserving existing tabs) if stored state indicates we WERE rotating but
+// in-memory service has not resumed. This uses alarms (persistent) instead of setTimeout (lost when SW
+// is suspended).
+try {
+  // Schedule first passive resume attempt shortly after startup. Only schedule if not currently rotating.
+  if (!rotationService.isRotating) {
+    void chrome.alarms.create(PASSIVE_RESUME_ALARM, {
+      when: Date.now() + 3000,
+    });
+  }
+} catch {}
+
+async function handlePassiveResume(): Promise<void> {
+  try {
+    if (rotationService.isRotating || rotationService.isStarting()) return; // already healthy
+    const stored = await (rotationService as any).storage.get(
+      StorageKeys.RotationState as any
+    );
+    const wasRotating =
+      !!stored?.rotationState?.isRotating || !!stored?.isRotating;
+    if (!wasRotating) {
+      // No prior rotation; stop scheduling further passive attempts.
+      try {
+        await chrome.alarms.clear(PASSIVE_RESUME_ALARM);
+      } catch {}
+      return;
+    }
+    // Attempt preserved initialize. Force preserve flag to avoid destructive stop.
+    try {
+      await (rotationService as any).storage.set({
+        [StorageKeys.ForcePreserveNextInit]: true,
+      });
+    } catch {}
+    try {
+      await (rotationService as any).initialize({ preserveExisting: true });
+    } catch (e) {
+      console.warn('[bg] passiveResume initialize failed', e);
+    }
+    if (rotationService.isRotating) {
+      // Success; clear alarm.
+      try {
+        await chrome.alarms.clear(PASSIVE_RESUME_ALARM);
+      } catch {}
+      return;
+    }
+    // Backoff schedule: attempt up to N times then give up (await popup interaction).
+    let attemptCount = 0;
+    try {
+      attemptCount =
+        (await (rotationService as any).storage.get(
+          'PassiveResumeAttemptCount'
+        )) || 0;
+    } catch {}
+    attemptCount++;
+    try {
+      await (rotationService as any).storage.set({
+        PassiveResumeAttemptCount: attemptCount,
+      });
+    } catch {}
+    if (attemptCount >= 5) {
+      try {
+        await chrome.alarms.clear(PASSIVE_RESUME_ALARM);
+      } catch {}
+      console.warn('[bg] passiveResume giving up after attempts', attemptCount);
+      return;
+    }
+    // Exponential-ish backoff: 3s, 6s, 12s, 24s, 48s
+    const nextDelayMs = 3000 * Math.pow(2, attemptCount - 1);
+    try {
+      void chrome.alarms.create(PASSIVE_RESUME_ALARM, {
+        when: Date.now() + nextDelayMs,
+      });
+    } catch {}
+  } catch (e) {
+    console.warn('[bg] passiveResume handler error', e);
+  }
+}
 
 // --- Evaluate-based e2e API (preferred harness; stripped in production) ---
 // Guarded by DefinePlugin constant __E2E_TESTING__ so Terser/closure can drop code when false.
@@ -590,66 +685,78 @@ if (typeof __E2E_TESTING__ !== 'undefined' && __E2E_TESTING__) {
         }
         return out;
       },
-        // Trigger a synthetic primary error for a given page URL (test/e2e helper)
-        triggerPrimaryErrorForUrl: async ({ url }: { url: string }) => {
-          try {
-            if (!url) return { ok: false, error: 'url required' };
-            const cfg: any = (rotationService as any).tabManager?.tabsConfig?.tabs?.find((t: any) => t.page?.url === url);
-            if (!cfg || !(cfg.tabId > 0)) return { ok: false, error: 'tab not found' };
-            // Capture pre-state snapshot
-            const before = {
-              tabId: cfg.tabId,
-              nextTabId: cfg.nextTabId,
-              suspended: !!cfg.suspended,
-              retryCount: cfg.retryCount || 0,
-              primaryCompleteObserved: !!cfg.primaryCompleteObserved,
-              lastNetworkErrorCode: cfg.lastNetworkErrorCode || null,
-            };
-            await (rotationService as any).onHandleError(cfg.tabId, cfg.page.url);
-            // Refresh reference (onHandleError may mutate in-place)
-            const afterCfg: any = (rotationService as any).tabManager?.tabsConfig?.tabs?.find((t: any) => t.page?.url === url);
-            const after = afterCfg
-              ? {
-                  tabId: afterCfg.tabId,
-                  nextTabId: afterCfg.nextTabId,
-                  suspended: !!afterCfg.suspended,
-                  retryCount: afterCfg.retryCount || 0,
-                  primaryCompleteObserved: !!afterCfg.primaryCompleteObserved,
-                  lastNetworkErrorCode: afterCfg.lastNetworkErrorCode || null,
-                }
-              : null;
-            return { ok: true, before, after };
-          } catch (e) { return { ok: false, error: String(e) }; }
-        },
-        // Trigger a synthetic primary success (page loaded) for a given URL (test/e2e helper)
-        triggerPrimarySuccessForUrl: async ({ url }: { url: string }) => {
-          try {
-            if (!url) return { ok: false, error: 'url required' };
-            const cfg: any = (rotationService as any).tabManager?.tabsConfig?.tabs?.find((t: any) => t.page?.url === url);
-            if (!cfg || !(cfg.tabId > 0)) return { ok: false, error: 'tab not found' };
-            await (rotationService as any).onPageLoaded(cfg.tabId, cfg.page.url);
-            return { ok: true };
-          } catch (e) { return { ok: false, error: String(e) }; }
-        },
-        getTabsConfig: async () => {
-          try {
-            const svc: any = rotationService as any;
-            const tabs =
-              svc.tabsConfig?.tabs?.map((t: any) => ({
-                tabId: t.tabId,
-                nextTabId: t.nextTabId,
-                url: t.page?.url,
-                suspended: !!t.suspended,
-                tabIdReady: t.tabIdReady,
-                nextTabIdReady: t.nextTabIdReady,
-                retryCount: typeof t.retryCount === 'number' ? t.retryCount : 0,
-                primaryCompleteObserved: !!t.primaryCompleteObserved,
-              })) || [];
-            return { ok: true, tabs };
-          } catch (e) {
-            return { ok: false, error: String(e) };
-          }
-        },
+      // Trigger a synthetic primary error for a given page URL (test/e2e helper)
+      triggerPrimaryErrorForUrl: async ({ url }: { url: string }) => {
+        try {
+          if (!url) return { ok: false, error: 'url required' };
+          const cfg: any = (
+            rotationService as any
+          ).tabManager?.tabsConfig?.tabs?.find((t: any) => t.page?.url === url);
+          if (!cfg || !(cfg.tabId > 0))
+            return { ok: false, error: 'tab not found' };
+          // Capture pre-state snapshot
+          const before = {
+            tabId: cfg.tabId,
+            nextTabId: cfg.nextTabId,
+            suspended: !!cfg.suspended,
+            retryCount: cfg.retryCount || 0,
+            primaryCompleteObserved: !!cfg.primaryCompleteObserved,
+            lastNetworkErrorCode: cfg.lastNetworkErrorCode || null,
+          };
+          await (rotationService as any).onHandleError(cfg.tabId, cfg.page.url);
+          // Refresh reference (onHandleError may mutate in-place)
+          const afterCfg: any = (
+            rotationService as any
+          ).tabManager?.tabsConfig?.tabs?.find((t: any) => t.page?.url === url);
+          const after = afterCfg
+            ? {
+                tabId: afterCfg.tabId,
+                nextTabId: afterCfg.nextTabId,
+                suspended: !!afterCfg.suspended,
+                retryCount: afterCfg.retryCount || 0,
+                primaryCompleteObserved: !!afterCfg.primaryCompleteObserved,
+                lastNetworkErrorCode: afterCfg.lastNetworkErrorCode || null,
+              }
+            : null;
+          return { ok: true, before, after };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
+      // Trigger a synthetic primary success (page loaded) for a given URL (test/e2e helper)
+      triggerPrimarySuccessForUrl: async ({ url }: { url: string }) => {
+        try {
+          if (!url) return { ok: false, error: 'url required' };
+          const cfg: any = (
+            rotationService as any
+          ).tabManager?.tabsConfig?.tabs?.find((t: any) => t.page?.url === url);
+          if (!cfg || !(cfg.tabId > 0))
+            return { ok: false, error: 'tab not found' };
+          await (rotationService as any).onPageLoaded(cfg.tabId, cfg.page.url);
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
+      getTabsConfig: async () => {
+        try {
+          const svc: any = rotationService as any;
+          const tabs =
+            svc.tabsConfig?.tabs?.map((t: any) => ({
+              tabId: t.tabId,
+              nextTabId: t.nextTabId,
+              url: t.page?.url,
+              suspended: !!t.suspended,
+              tabIdReady: t.tabIdReady,
+              nextTabIdReady: t.nextTabIdReady,
+              retryCount: typeof t.retryCount === 'number' ? t.retryCount : 0,
+              primaryCompleteObserved: !!t.primaryCompleteObserved,
+            })) || [];
+          return { ok: true, tabs };
+        } catch (e) {
+          return { ok: false, error: String(e) };
+        }
+      },
       // Canonical ordered URLs (config order) for ordering tests
       getOrderedUrls: async () => {
         try {
@@ -932,6 +1039,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         await rotationService.onConfigReloadAlarm();
       } else if (alarm.name === 'rotationWatchdog') {
         await rotationService.onWatchdogAlarm();
+      } else if (alarm.name === PASSIVE_RESUME_ALARM) {
+        await handlePassiveResume();
       } else if (alarm.name.startsWith('reload:')) {
         const id = Number(alarm.name.split(':')[1]);
         await rotationService.onReloadAlarm(id);
@@ -953,12 +1062,17 @@ if (chrome.webNavigation && chrome.webNavigation.onErrorOccurred) {
       (self as any).__httpStatusMap = (self as any).__httpStatusMap || {};
       (self as any).__httpStatusMap[details.tabId] = -1;
       if ((details as any)?.error) {
-        (self as any).__httpErrorTextMap = (self as any).__httpErrorTextMap || {};
-        (self as any).__httpErrorTextMap[details.tabId] = String((details as any).error).slice(0, 160);
+        (self as any).__httpErrorTextMap =
+          (self as any).__httpErrorTextMap || {};
+        (self as any).__httpErrorTextMap[details.tabId] = String(
+          (details as any).error
+        ).slice(0, 160);
       }
       // Set network error info in TabConfig for diagnostics and deferred reload
       const tabs = rotationService?.tabsConfig?.tabs;
-      const tabConfig = tabs?.find((tab) => tab.tabId === details.tabId || tab.nextTabId === details.tabId);
+      const tabConfig = tabs?.find(
+        (tab) => tab.tabId === details.tabId || tab.nextTabId === details.tabId
+      );
       if (tabConfig) {
         tabConfig.lastNetworkErrorCode = (details as any)?.error || 'unknown';
         tabConfig.lastNetworkErrorAt = Date.now();
@@ -982,7 +1096,8 @@ if (chrome.webNavigation && chrome.webNavigation.onCompleted) {
           (self as any).__httpStatusMap = (self as any).__httpStatusMap || {};
           // details may include statusCode in MV3 (Chrome >= some versions). If absent leave undefined.
           const sc = (details as any).statusCode;
-          if (typeof sc === 'number') (self as any).__httpStatusMap[details.tabId] = sc;
+          if (typeof sc === 'number')
+            (self as any).__httpStatusMap[details.tabId] = sc;
         } catch {}
         await rotationService.onPageLoaded(details.tabId, details.url);
         // test-only nav counting
@@ -1082,8 +1197,12 @@ chrome.runtime.onMessage.addListener(
           if (!rotationService.isRotating && !rotationService.isStarting()) {
             await rotationService.initialize();
           } else {
-            console.log('[bg] Already rotating; refreshing state with preservation');
-            await (rotationService as any).initialize({ preserveExisting: true });
+            console.log(
+              '[bg] Already rotating; refreshing state with preservation'
+            );
+            await (rotationService as any).initialize({
+              preserveExisting: true,
+            });
           }
         } catch (e) {
           console.error('[bg] Failed to start rotation:', e);
@@ -1095,7 +1214,11 @@ chrome.runtime.onMessage.addListener(
     if (message.action === 'stopRotation') {
       safeSendResponse({ ok: true, status: 'stopping' });
       void (async () => {
-        try { await rotationService.stopRotation(); } catch (e) { console.error('[bg] Failed to stop rotation:', e); }
+        try {
+          await rotationService.stopRotation();
+        } catch (e) {
+          console.error('[bg] Failed to stop rotation:', e);
+        }
       })();
       return false;
     }

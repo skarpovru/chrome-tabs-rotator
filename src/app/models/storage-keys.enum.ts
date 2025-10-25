@@ -17,4 +17,5 @@ export enum StorageKeys {
   InitializationErrorMeta = 'initializationErrorMeta', // JSON with { at:number, stack?:string }
   ForcePreserveNextInit = 'forcePreserveNextInit', // e2e / crash recovery flag to force initialize({preserveExisting:true}) once
   DisableAutoPreserveNextInit = 'disableAutoPreserveNextInit', // e2e flag to prevent auto-preserve for negative tests
+  TabsConfigSnapshot = 'tabsConfigSnapshot', // persisted subset of tabsConfig including suspended & network error metadata
 }
